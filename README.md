@@ -2,47 +2,83 @@
 
 ## Introduction
 
-This cohort project explores how to build an AI assistant for email and calendar work. The assistant will eventually connect to an email provider, receive new-message events, understand what needs attention, and help the user take appropriate actions.
+AI Personal Assistant is an educational project for building an assistant that helps people manage email and calendar work.
 
-We will build the project incrementally. The first week focuses on understanding the goal and preparing a reliable development environment. Later weeks will introduce Nylas integration, email workflows, AI decision-making, persistence, and deployment.
+The assistant receives events from connected communication services, converts provider-specific data into consistent application models, and routes each event through the appropriate workflow. AI components can then classify requests, extract useful information, and suggest next steps. The user remains in control of consequential actions such as sending messages or changing calendar events.
 
-## Why Nylas?
+## What We Are Building
 
-[Nylas](https://www.nylas.com/) gives applications one API for supported email and calendar providers. It handles provider authentication and can notify our application when something changes.
+The completed application should be able to:
 
-We will use Nylas in Week 2. No email account connection or webhook implementation is required in Week 1.
+- connect to supported email and calendar providers
+- receive new events without continuously polling external services
+- normalize provider data into stable application schemas
+- classify messages and route them to specialized workflows
+- store raw events and processed results for traceability
+- draft or perform actions after the required user approval
+- expose health, event, and assistant functionality through an API
 
-## Project Direction
+## High-Level Architecture
 
-```text
-Email and calendar provider
-        ↓
-      Nylas
-        ↓
-AI personal assistant
-        ↓
-User reviews or approves an action
+```mermaid
+flowchart LR
+    Email[Email Provider] --> Integration[Communication Integration]
+    Calendar[Calendar Provider] --> Integration
+    Integration -->|Events| API[Application API]
+    API -->|Store raw events| Database[(Application Database)]
+    API --> Workflows[Assistant Workflows]
+    Workflows --> AI[AI Decision Layer]
+    AI -->|Processed results| Database
+    Workflows --> Approval{User Approval}
+    Approval -->|Approved actions| Integration
+    Integration --> Email
+    Integration --> Calendar
 ```
 
-The final assistant should be able to:
+## How Data Moves Through the Application
 
-- connect to a supported email and calendar provider
-- receive and understand new email events
-- classify requests and route them to the correct workflow
-- suggest or perform approved email and calendar actions
-- keep credentials and personal data secure
+1. A connected provider reports a new email or calendar event.
+2. The application verifies and stores the incoming event.
+3. A canonical schema separates the application from provider-specific payloads.
+4. The workflow layer decides which assistant capability should handle the event.
+5. The AI layer analyzes content and proposes the next action.
+6. Actions requiring confirmation wait for the user before execution.
+7. The application records the result for history and traceability.
 
-## Before Week 1
+## Intended Project Structure
 
-Create the accounts needed for the cohort:
+The codebase will grow into this structure as each capability is implemented:
 
-1. Create a [GitHub account](https://github.com/) if you do not already have one.
-2. Install Git and Python 3.12 or newer.
-3. Install [uv](https://docs.astral.sh/uv/).
-4. Choose an editor such as VS Code or Cursor.
+```text
+ai-personal-assistant/
+├── app/
+│   ├── main.py                 # Application entry point
+│   ├── api/                    # HTTP endpoints and incoming events
+│   ├── integrations/           # Email and calendar provider clients
+│   ├── schemas/                # Canonical application data models
+│   ├── services/               # Email and calendar operations
+│   ├── workflows/              # Event classification and routing
+│   ├── agents/                 # AI decision-making logic
+│   └── database/               # Persistence models and queries
+├── tests/                      # Automated application checks
+├── .env.example               # Required configuration names
+└── pyproject.toml              # Python project configuration
+```
 
-## Start with Week 1
+Folders are added only when working code needs them. The diagram describes the intended destination rather than empty scaffolding that must exist from the beginning.
 
-The [`week-1`](https://github.com/lindseypeng/ai-personal-assistant/tree/week-1) branch contains the complete setup guide. It covers local tools, creating your own repository, and optional Nylas preparation for Week 2.
+## Design Principles
 
-Never commit API keys, access tokens, webhook secrets, or personal email content.
+- Keep provider-specific logic behind the integration boundary.
+- Validate external events before processing them.
+- Use canonical schemas throughout internal workflows.
+- Separate API handling, workflows, AI decisions, and persistence.
+- Require confirmation before consequential external actions.
+- Never commit credentials or personal email content.
+- Build and test one useful capability at a time.
+
+## Technology Direction
+
+The project uses Python as its foundation. As the application develops, it will introduce an API framework, typed data models, external-service integrations, AI workflows, persistent storage, containers, and cloud deployment.
+
+Specific technologies may change as the project evolves. The architecture keeps those implementation choices separate from the assistant's core responsibilities.

@@ -1,0 +1,7 @@
+services:
+  setup-check:
+    image: python:3.12-slim
+    command:
+      - python
+      - -c
+      - print("Docker Compose is ready for AI Personal Assistant.")

@@ -20,7 +20,7 @@
                     <th>Subject</th>
                     <th>From Name</th>
                     <th>From Email</th>
-                    <th>Spam Check</th>
+                    <th>Apartment Listing</th>
                 </tr>
             </thead>
             <tbody>
@@ -45,11 +45,28 @@
                     <td>
                         {% set result = classifications.get(webhook.id) %}
                         {% if result %}
-                            {{ result.category.value }} ({{ "%.2f" | format(result.confidence) }})
-                            {% if result.category.value == "spam" %}
-                                <form method="post" action="/delete/{{ webhook.id }}" onsubmit="return confirm('Delete this email?');">
-                                    <button type="submit">Delete</button>
-                                </form>
+                            {{ "Yes" if result.is_listing else "No" }} ({{ "%.2f" | format(result.confidence) }})
+                            {% if result.is_listing %}
+                                <p>{{ result.listings | length }} listing(s)</p>
+                                <ol>
+                                    {% for listing in result.listings %}
+                                    <li>
+                                        {% if listing.price %}{{ listing.price }} {{ listing.currency or "" }}{% endif %}
+                                        {% if listing.location %} · {{ listing.location }}{% endif %}
+                                        {% if listing.size_sqm %} · {{ listing.size_sqm }} m²{% endif %}
+                                        {% if listing.rooms %} · {{ listing.rooms }} rooms{% endif %}
+                                        {% if listing.move_in_date %} · from {{ listing.move_in_date }}{% endif %}
+                                        {% if listing.link %} · <a href="{{ listing.link }}" target="_blank" rel="noopener">link</a>{% endif %}
+                                    </li>
+                                    {% endfor %}
+                                </ol>
+                                {% if webhook.id in labeled %}
+                                    Labeled in Gmail
+                                {% else %}
+                                    <form method="post" action="/label/{{ webhook.id }}" onsubmit="return confirm('Add the Apartments label in Gmail?');">
+                                        <button type="submit">Label in Gmail</button>
+                                    </form>
+                                {% endif %}
                             {% endif %}
                         {% endif %}
                     </td>

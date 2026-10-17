@@ -12,15 +12,18 @@ from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 from schemas.nylas_email_schema import EmailObject
 from schemas.nylas_webhook_schema import WebhookEvent
-from workflows.spam_workflow import EmailCategory, classify, delete_email, is_from_me
+from workflows.apartment_workflow import check_apartment, label_email, save_listing
 
 load_dotenv(override=True)
 
 # Array to hold webhook dataclass
 webhooks = []
 
-# Spam classification results by email id
+# Apartment listing results by email id
 classifications = {}
+
+# Ids of emails labeled in Gmail
+labeled = set()
 
 # Create the FastAPI app
 app = FastAPI()
@@ -64,7 +67,7 @@ async def webhook(
 
     webhooks.append(email_obj)
     # Classify after replying, so Nylas gets its 200 right away
-    background_tasks.add_task(check_spam, email_obj)
+    background_tasks.add_task(check_listing, email_obj)
     return PlainTextResponse("Webhook received", status_code=200)
 
 
@@ -74,26 +77,27 @@ def index(request: Request):
     return templates.TemplateResponse(
         request,
         "index.html",
-        {"webhooks": webhooks, "classifications": classifications},
+        {"webhooks": webhooks, "classifications": classifications, "labeled": labeled},
     )
 
 
-# Delete an email after you confirm it on the main page
-@app.post("/delete/{email_id}")
-def delete(email_id: str):
+# Label a listing in Gmail after you confirm it on the main page
+@app.post("/label/{email_id}")
+def label(email_id: str):
     result = classifications.get(email_id)
     email_obj = next((w for w in webhooks if w.id == email_id), None)
-    if email_obj and result and result.category == EmailCategory.SPAM:
-        delete_email(email_obj)
-        webhooks.remove(email_obj)
-        del classifications[email_id]
+    if email_obj and result and result.is_listing:
+        label_email(email_obj)
+        labeled.add(email_id)
     return RedirectResponse(url="/", status_code=303)
 
 
-# Classify emails sent from your own address as spam or not spam
-def check_spam(email_obj: EmailObject):
-    if is_from_me(email_obj):
-        classifications[email_obj.id] = classify(email_obj)
+# Check every incoming email for apartment listings and save the ones found
+def check_listing(email_obj: EmailObject):
+    result = check_apartment(email_obj)
+    classifications[email_obj.id] = result
+    if result.is_listing:
+        save_listing(email_obj, result)
 
 
 # Signature verification

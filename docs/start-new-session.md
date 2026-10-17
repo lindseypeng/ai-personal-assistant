@@ -7,16 +7,16 @@ Some Part 1 steps in the [Week 2 README](https://github.com/lindseypeng/ai-perso
 | Step 1: Connect your email account | Once. Run it again only to switch accounts or if your grant expires. |
 | Step 2: Start the tunnel | Every session, and again whenever it drops |
 | Step 3: Start `main.py` | Every session |
-| Step 4: Create the webhook | Only when the tunnel URL changes |
+| Step 4: Create the webhook | Whenever the tunnel URL changes, which is every time the tunnel restarts |
 | Step 5: Test the webhook | Whenever you want to confirm emails are arriving |
 
 If you finished Part 1 before and are coming back to test again:
 
-1. Start the tunnel: `ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 80:localhost:8000 serveo.net`
+1. Start the tunnel in a separate terminal and keep it open: `cloudflared tunnel --url http://localhost:8000`. If `cloudflared` isn't installed yet, run `brew install cloudflared` first (Windows: `winget install --id Cloudflare.cloudflared`).
 2. Start the server: `cd app` then `uv run main.py`
-3. Compare the tunnel URL with `SERVER_URL` in `.env`.
-   - **Same URL:** You're done. Send yourself an email to test.
-   - **Different URL:** Delete the old webhook under **Notifications** in the Nylas Dashboard, update `SERVER_URL`, then continue below.
+3. Compare the `https://...trycloudflare.com` URL the tunnel prints with `SERVER_URL` in `.env`.
+   - **Same URL:** The tunnel from your last session is still running. You're done. Send yourself an email to test.
+   - **Different URL:** This is the usual case, because each new tunnel gets a new URL. Delete the old webhook under **Notifications** in the Nylas Dashboard, update `SERVER_URL`, then continue below.
 4. Run `cd app/config` then `uv run config_webhook.py` to create the webhook and get a new secret.
 5. Paste the secret into `WEBHOOK_SECRET` in `.env`.
 6. **Restart `main.py` so it loads the new secret.**

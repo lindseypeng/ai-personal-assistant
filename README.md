@@ -9,9 +9,9 @@
 
 This week builds on the email capture setup from [Week 2](https://github.com/lindseypeng/ai-personal-assistant/blob/week-2/README.md). Make sure you can still capture emails with Nylas:
 
-1. **Restart the Serveo tunnel.** Serveo only runs temporarily, so you need a new tunnel each session.
+1. **Start a Cloudflare tunnel.** We now use Cloudflare instead of Serveo because it stays connected more reliably. Install it once with `brew install cloudflared` (Windows: `winget install --id Cloudflare.cloudflared`), then run `cloudflared tunnel --url http://localhost:8000` in a separate terminal and keep it open.
 2. **Start `main.py`:** `cd app` then `uv run main.py`.
-3. **Check the webhook.** If the tunnel URL changed, delete the old webhook in the Nylas Dashboard, update `SERVER_URL`, create a new webhook, and restart `main.py` to load the new secret. See [Start a New Session](docs/start-new-session.md) for each step.
+3. **Update the webhook.** The tunnel gets a new `trycloudflare.com` URL every time it starts, so delete the old webhook in the Nylas Dashboard, update `SERVER_URL`, create a new webhook, and restart `main.py` to load the new secret. See [Start a New Session](docs/start-new-session.md) for each step.
 4. **Send yourself 2 to 3 sample spam emails** from the address in `EMAIL`. Check that each one is saved as JSON in `requests/events/`.
 5. **Follow this week's slides** to build the workflow step by step.
 

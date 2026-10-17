@@ -4,7 +4,7 @@
 
 In this part of the project, you connect your local development server to Nylas using a webhook. A webhook is how Nylas notifies your app in real time when new emails arrive.
 
-Your local machine isn't publicly accessible from the internet, so we use a **tunnel** ([Serveo](https://serveo.net/)) to temporarily expose your local port 8000 at a public URL. Nylas sends its webhook events to this public URL, which forwards them to your local app.
+Your local machine isn't publicly accessible from the internet, so we use a **tunnel** ([Cloudflare Tunnel](https://github.com/cloudflare/cloudflared)) to temporarily expose your local port 8000 at a public URL. Nylas sends its webhook events to this public URL, which forwards them to your local app.
 
 This setup is temporary and meant for testing during development. In production, you'd deploy the app to a server with a fixed URL.
 
@@ -27,10 +27,10 @@ The webhook becomes invalid once the tunnel URL expires or changes. Most problem
 4. Start the tunnel in a separate terminal and keep it open:
 
    ```bash
-   ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 80:localhost:8000 serveo.net
+   cloudflared tunnel --url http://localhost:8000
    ```
 
-5. Copy the HTTPS URL it prints into `SERVER_URL` (**use the HTTPS URL, not HTTP**).
+5. Copy the `https://...trycloudflare.com` URL it prints into `SERVER_URL` (**use the HTTPS URL, not HTTP**).
 6. Start the server: `cd app` then `uv run main.py`.
 7. In another terminal, create the webhook: `cd app/config` then `uv run config_webhook.py`.
 8. Copy the printed secret into `WEBHOOK_SECRET`.
@@ -51,13 +51,13 @@ The webhook becomes invalid once the tunnel URL expires or changes. Most problem
 
 ### 2. Expired or Changed Tunnel URL
 
-**Symptoms:** Emails arrive but nothing reaches `main.py`, or the Serveo terminal disconnected.
+**Symptoms:** Emails arrive but nothing reaches `main.py`, or the tunnel terminal stopped.
 
-Serveo is free and does not publish a time limit for HTTP tunnels, so expect it to drop on its own without warning, for example after your laptop sleeps or your network changes. Nothing in the app shows an error when this happens. Emails keep arriving in your inbox, but Nylas can no longer reach `main.py`.
+The free Cloudflare quick tunnel needs no account, but it gives you a new random URL every time `cloudflared` starts. It is meant for testing, so it can also drop after your laptop sleeps or your network changes. Nothing in the app shows an error when this happens. Emails keep arriving in your inbox, but Nylas can no longer reach `main.py`.
 
 **How to tell the tunnel is down:**
 
-- The Serveo terminal has returned to a normal prompt, or shows a message such as `Connection closed` or `Broken pipe`.
+- The tunnel terminal has returned to a normal prompt, or shows connection errors.
 - You send yourself an email, and no `POST /events` line appears in the `main.py` terminal.
 - No new email appears at `http://localhost:8000`.
 - The webhook under **Notifications** in the Nylas Dashboard shows a failing or inactive status.
@@ -65,26 +65,16 @@ Serveo is free and does not publish a time limit for HTTP tunnels, so expect it 
 **How to check it:** Replace the URL with your `SERVER_URL` and run:
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" -H "serveo-skip-browser-warning: true" https://your-subdomain.serveo.net
+curl -s -o /dev/null -w "%{http_code}\n" https://your-tunnel-name.trycloudflare.com
 ```
 
 - `200` means the tunnel and `main.py` are both working.
 - Any other code, or a connection error, means the tunnel or `main.py` is down. Check that both terminals are still running.
+- Right after starting a tunnel, the new URL can take up to a minute to work. Wait and try again before assuming it's broken.
 
-**Fix:**
+**Fix:** Restart the tunnel, then follow the [Reset Checklist](#reset-checklist-webhook-stops-working) above, since the new tunnel has a new URL. Delete the old webhook each time you create a new one.
 
-- If Serveo gives you the **same URL** after you reconnect, just keep the new terminal open. The existing webhook still works.
-- If the URL **changed**, follow the [Reset Checklist](#reset-checklist-webhook-stops-working) above. Delete the old webhook each time you create a new one.
-
-To reconnect automatically when the tunnel drops, Serveo suggests `autossh` (install it with `brew install autossh` on macOS):
-
-```bash
-autossh -M 0 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 80:localhost:8000 serveo.net
-```
-
-Serveo often, but not always, gives you the same URL after a reconnect, so still compare it with `SERVER_URL`.
-
-If Serveo is unavailable, you can use [Pinggy](https://pinggy.io/) as a backup. Its free URLs expire after 60 minutes:
+If Cloudflare is unavailable, you can use [Pinggy](https://pinggy.io/) as a backup. Its free URLs expire after 60 minutes:
 
 ```bash
 ssh -p 443 -R0:localhost:8000 free.pinggy.io
@@ -122,7 +112,7 @@ On Windows, replace `localhost` with `127.0.0.1`.
 3. Use the same port in the tunnel command:
 
    ```bash
-   ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 80:localhost:8085 serveo.net
+   cloudflared tunnel --url http://localhost:8085
    ```
 
 4. Then follow the [Reset Checklist](#reset-checklist-webhook-stops-working) to register a webhook for the new URL.

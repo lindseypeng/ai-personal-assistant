@@ -8,7 +8,7 @@
 
 ## The Example Data: Apartment Listings
 
-The examples use apartment listings from the instructor's own side project. It reads apartment alert emails from sites like ImmobilienScout24, and an LLM extracts each listing's title, price, size, rooms, location, and link. One email can hold many listings. You don't need that project to follow along: the practice scripts include made-up sample listings, and the same ideas apply to any data you capture with Nylas.
+The examples use apartment listings from my own project. It reads apartment alert emails from sites like ImmobilienScout24, and an LLM extracts each listing's title, price, size, rooms, location, and link. One email can hold many listings. You don't need that project to follow along: the practice scripts include made-up sample listings, and the same ideas apply to any data you capture with Nylas.
 
 ## Data Schema
 
@@ -59,9 +59,14 @@ flowchart LR
     M --> N[Answer with cited sources]
 ```
 
-`/search` is the Retrieval step. `/ask` adds Generation: the retrieved listings are numbered and given to the LLM, which answers using only those listings and returns the numbers it used as `sources`.
+RAG (Retrieval-Augmented Generation) has two halves, and the app exposes each one:
 
-## Run Once
+- **Retrieval, `GET /search`:** Find the stored data most relevant to a question. The question is embedded, SQL filters remove listings that don't fit (price, rooms), and the rest are ranked by similarity. No LLM writes anything here. You get back the matching listings and read them yourself.
+- **Generation, `POST /ask`:** Runs the same retrieval, then makes one more LLM call. The retrieved listings are numbered and put in the prompt, and the LLM answers the question using only those listings. It returns its answer plus the numbers of the listings it used, which the app turns back into `sources`.
+
+Retrieval decides what the LLM can see, so the answer can only be as good as what was retrieved. Generation turns those results into a direct answer, and grounding it in retrieved data keeps it from inventing listings.
+
+## Run Once: Set Up and Create the Table
 
 1. **Fill in `.env`** from `.env.example`: `OPENAI_API_KEY` and `DATABASE_URL`.
 2. **Install packages:** `uv sync`
@@ -70,7 +75,7 @@ flowchart LR
 5. **Create the table:** `uv run app/database/create_tables.py`
 6. **Load the emails you already captured:** `uv run app/database/load_events.py`. Run it again if emails arrived while the app was stopped.
 
-## Every Time
+## Run Every Time: Start the App and Ask Questions
 
 1. **Start the database:** `docker compose up -d`
 2. **Start the app** and keep the terminal open: `cd app` then `uv run main.py`

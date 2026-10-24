@@ -1,6 +1,10 @@
 # Week 4: Postgres, pgvector, and RAG
 
-This week we store data in Postgres, search it by meaning with pgvector, and add an LLM that answers questions from what it finds (RAG: Retrieval-Augmented Generation).
+## This Week's Goals
+
+1. **Learn vector search:** Store apartment listings in Postgres with pgvector and search them by meaning. Practice with the scripts in [week4/pgvector-setup](week4/pgvector-setup/README.md).
+2. **Move the app to Postgres:** The apartment workflow now saves each listing with an embedding in Postgres instead of a CSV file, and `GET /search` finds listings by meaning with optional price and room filters.
+3. **Complete RAG:** `/search` is the Retrieval step. `POST /ask` adds Generation: an LLM answers your question using only the retrieved listings and cites the ones it used.
 
 ## The Example Data: Apartment Listings
 

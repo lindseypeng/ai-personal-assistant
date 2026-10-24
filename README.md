@@ -8,7 +8,7 @@
 
 ## The Example Data: Apartment Listings
 
-The examples use apartment listings from my own project. It reads apartment alert emails from sites like ImmobilienScout24, and an LLM extracts each listing's title, price, size, rooms, location, and link. One email can hold many listings. You don't need that project to follow along: the practice scripts include made-up sample listings, and the same ideas apply to any data you capture with Nylas.
+The examples use apartment listings from my own project. It reads apartment alert emails from sites like ImmobilienScout24, and an LLM extracts each listing's title, price, size, rooms, location, and link. One email can hold many listings. The practice scripts use simulated listings that mimic the data from my project, so you don't need it to follow along. The same ideas apply to any data you capture with Nylas.
 
 ## Data Schema
 
@@ -65,6 +65,20 @@ RAG (Retrieval-Augmented Generation) has two halves, and the app exposes each on
 - **Generation, `POST /ask`:** Runs the same retrieval, then makes one more LLM call. The retrieved listings are numbered and put in the prompt, and the LLM answers the question using only those listings. It returns its answer plus the numbers of the listings it used, which the app turns back into `sources`.
 
 Retrieval decides what the LLM can see, so the answer can only be as good as what was retrieved. Generation turns those results into a direct answer, and grounding it in retrieved data keeps it from inventing listings.
+
+## The RAG Pipeline, Step by Step
+
+Where each step happens in the [practice scripts](week4/pgvector-setup/README.md) and in the app:
+
+| Step | Practice scripts | App |
+|------|------------------|-----|
+| Document processing: load and chunk | `listings.py` loads the CSV and turns each listing into one line of text. No chunking: a listing is about 30 tokens, so it is already one chunk. | `apartment_workflow.py` extracts listings from an email, `listing_to_text` turns each into one line |
+| Embedding generation | `get_embeddings` in `listings.py`, used by scripts 1, 2, and 3 | `create_embedding` in `database/embedding.py` |
+| Vector storage | Script 1 (`1-basic-operations.py`, plain SQL) and script 2 (`2-sqlalchemy-example.py`, SQLAlchemy) | `save_listings` in `database/repository.py` |
+| Similarity search | `search` in scripts 1 and 2, `retrieve` in script 3 (`3-rag-example.py`) | `search_listings`, behind `GET /search` |
+| Response generation | Script 3 only | `ask_workflow.py`, behind `POST /ask` |
+
+Chunking matters for long text such as articles or PDFs, which are split into pieces so each vector covers one topic. Short records like listings are embedded whole.
 
 ## Run Once: Set Up and Create the Table
 

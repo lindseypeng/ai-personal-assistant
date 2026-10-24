@@ -32,21 +32,34 @@ For OpenAI embeddings, inner product and cosine give the same ranking, and inner
 
 **Port 5432 already in use?** Another Postgres is running, often from a different project. Stop it, or run this one on another port: set `POSTGRES_PORT=5434` and change `DATABASE_URL` to use `localhost:5434`.
 
-## Which Listings Are Used?
+## The Data
 
-`listings.py` loads `requests/apartments.csv` if you created one with the apartment workflow. Otherwise it loads `sample_listings.csv`, 16 made-up Berlin listings. Your own CSV stays out of Git because it holds content from your emails.
+`sample_listings.csv` holds 16 simulated Berlin listings. I made them up to mimic the listings my own project extracts from real apartment alert emails, with the same columns, so no personal email content is needed.
+
+## The RAG Pipeline in These Scripts
+
+| Step | Where it happens |
+|------|------------------|
+| Document processing | `listings.py` loads the CSV and `listing_text` turns each listing into one line of text. There is no chunking: each listing is about 30 tokens, so one listing is already one chunk. |
+| Embedding generation | `get_embeddings` in `listings.py`, with `text-embedding-3-small`, used by scripts 1, 2, and 3 |
+| Vector storage | Script 1 (`1-basic-operations.py`, plain SQL) and script 2 (`2-sqlalchemy-example.py`, SQLAlchemy) insert each listing with its embedding |
+| Similarity search | `search` in scripts 1 and 2, `retrieve` in script 3 (`3-rag-example.py`) |
+| Response generation | `generate` in script 3 only |
+
+Chunking matters for long text such as articles or PDFs, which are split into pieces before embedding so each vector covers one topic. Short records like listings are embedded whole.
 
 ## Run the Scripts
 
-Run both from this folder:
+Run them in order from this folder:
 
 ```bash
 cd week4/pgvector-setup
 uv run 1-basic-operations.py
 uv run 2-sqlalchemy-example.py
+uv run 3-rag-example.py
 ```
 
-Each run drops and recreates its own practice table, so you can run them as often as you like. They do not touch the app's `listings` table.
+Scripts 1 and 2 drop and recreate their own practice tables, so you can run them as often as you like. Script 3 reads the table from script 1. None of them touch the app's `listings` table.
 
 ### 1. Basic Operations (plain SQL)
 
@@ -62,10 +75,22 @@ Each run drops and recreates its own practice table, so you can run them as ofte
 
 `2-sqlalchemy-example.py` does the same with the SQLAlchemy ORM, the style the app uses. The table is a Python class with a `Vector(1536)` column, and search uses `.max_inner_product()` instead of writing `<#>` by hand. It also shows how to stack normal filters (`max_price`, `min_rooms`) on top of a similarity search.
 
+Scripts 1 and 2 are retrieval only. The queries read like questions, but each one is embedded and compared with the stored vectors, and you get back the closest rows. No LLM writes an answer.
+
+### 3. RAG: Retrieval, then Generation
+
+`3-rag-example.py` adds the generation step, the same two steps as `POST /ask` in the app:
+
+1. **Retrieve:** rank the listings by similarity to the question, as in script 1.
+2. **Generate:** number the retrieved listings, put them in the prompt, and let `gpt-4o-mini` answer using only those listings and cite the numbers it used.
+
+It prints the retrieved listings and the generated answer one after the other, so you can see what each step adds. The last question, "Is there a castle with a moat?", shows a grounded answer saying nothing fits instead of inventing a listing.
+
 ## Things to Try
 
-- **Compare the two datasets.** The sample listings have titles such as "Garden flat with private terrace". A CSV from the Week 3 workflow has no title column, so the embedded text is only location, rooms, size, and price. Run the same query on both and compare the similarity scores. The text you embed decides what search can find.
-- **Search in another language.** Ask in English and see whether German listings still match.
+- **Remove the titles.** Change `listing_text` to leave out `listing["title"]`, run script 1 again, and compare the similarity scores. The text you embed decides what search can find.
+- **Search in another language.** Ask in German, for example "Wohnung mit Garten", and see whether the English listings still match.
+- **Change what the LLM sees.** In script 3, retrieve only 1 listing instead of 3. Retrieval limits what generation can answer.
 - **Change the filters.** What happens to the ranking when `min_rooms=3` removes the best match?
 - **Read the SQL.** Add `echo=True` to `create_engine` in the SQLAlchemy script to print the queries it sends.
 

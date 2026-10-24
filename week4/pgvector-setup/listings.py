@@ -1,9 +1,8 @@
 """
 Shared helpers for the Week 4 practice scripts.
 
-Loads apartment listings from a CSV file and turns each one into text we can embed.
-Uses your own requests/apartments.csv if the apartment workflow created one,
-otherwise the made-up listings in sample_listings.csv.
+Loads the simulated apartment listings in sample_listings.csv and turns each one
+into text we can embed.
 """
 
 import csv
@@ -15,8 +14,6 @@ from openai import OpenAI
 
 load_dotenv()
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-OWN_CSV = BASE_DIR / "requests" / "apartments.csv"
 SAMPLE_CSV = Path(__file__).resolve().parent / "sample_listings.csv"
 
 DATABASE_URL = os.environ.get(
@@ -31,13 +28,11 @@ def to_number(value: str):
 
 
 def load_listings() -> list[dict]:
-    path = OWN_CSV if OWN_CSV.exists() else SAMPLE_CSV
-    print(f"Loading listings from {path.relative_to(BASE_DIR)}")
-    with open(path) as f:
+    with open(SAMPLE_CSV) as f:
         rows = list(csv.DictReader(f))
     return [
         {
-            "title": row.get("title") or None,  # older CSVs have no title column
+            "title": row["title"] or None,
             "location": row["location"] or None,
             "price": to_number(row["price"]),
             "currency": row["currency"] or None,

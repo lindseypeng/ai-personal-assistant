@@ -96,6 +96,8 @@ def main():
     create_tables()
     insert_listings()
 
+    # Retrieval only: each search embeds the text and returns the closest rows.
+    # No LLM writes an answer here. See 3-rag-example.py for the generation step.
     search("bright flat with outdoor space")
     search("bright flat with outdoor space", min_rooms=3)
     search("good for a student on a budget", max_price=1000)

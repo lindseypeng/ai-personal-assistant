@@ -92,6 +92,8 @@ def main():
         create_table(conn)
         insert_listings(conn)
 
+        # Retrieval only: each search embeds the text and returns the closest rows.
+        # No LLM writes an answer here. See 3-rag-example.py for the generation step.
         search(conn, "somewhere quiet for a family with kids")
         search(conn, "close to public transport")
         search(conn, "close to public transport", max_price=1000)

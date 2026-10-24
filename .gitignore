@@ -11,6 +11,3 @@ requests/events/*.json
 
 # macOS
 .DS_Store
-
-# Saved apartment listings
-requests/apartments.csv

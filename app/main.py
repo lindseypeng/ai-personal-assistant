@@ -6,13 +6,16 @@ from typing import Optional
 import uuid
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, Header, Request, status
+from fastapi import BackgroundTasks, FastAPI, Header, Query, Request, status
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
+from database.repository import search_listings
+from schemas.listing_schema import AskRequest, AskResponse, ListingSearchResult
 from schemas.nylas_email_schema import EmailObject
 from schemas.nylas_webhook_schema import WebhookEvent
 from workflows.apartment_workflow import check_apartment, label_email, save_listing
+from workflows.ask_workflow import ask
 
 load_dotenv(override=True)
 
@@ -90,6 +93,23 @@ def label(email_id: str):
         label_email(email_obj)
         labeled.add(email_id)
     return RedirectResponse(url="/", status_code=303)
+
+
+# Search saved listings by meaning, with optional price and room filters
+@app.get("/search", response_model=list[ListingSearchResult])
+def search(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(5, ge=1, le=50),
+    max_price: Optional[float] = None,
+    min_rooms: Optional[float] = None,
+):
+    return search_listings(q, limit=limit, max_price=max_price, min_rooms=min_rooms)
+
+
+# Answer a question about saved listings: retrieve the closest ones, then let the LLM answer from them
+@app.post("/ask", response_model=AskResponse)
+def ask_listings(request: AskRequest):
+    return ask(request.question, request.limit, request.max_price, request.min_rooms)
 
 
 # Check every incoming email for apartment listings and save the ones found

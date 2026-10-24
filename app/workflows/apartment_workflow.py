@@ -1,18 +1,18 @@
-import csv
 import json
 import os
 import re
 import sys
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 from nylas import Client
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))  # allow importing schemas
+sys.path.append(str(Path(__file__).resolve().parent.parent))  # allow importing schemas and database
 
+from database.repository import save_listings
+from schemas.listing_schema import Listing
 from schemas.nylas_email_schema import EmailObject
 from schemas.nylas_webhook_schema import WebhookEvent
 
@@ -20,7 +20,6 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 EVENTS_DIR = BASE_DIR / "requests" / "events"
-LISTINGS_FILE = BASE_DIR / "requests" / "apartments.csv"
 LABEL_NAME = "Apartments"
 READ_ONLY_LABELS = {"SENT", "DRAFT", "CHAT"}
 MAX_TEXT_CHARS = 40000  # limit on the email text sent to the LLM
@@ -31,16 +30,6 @@ apartments or houses, including listing alerts and digests from property sites.
 If it does, extract every listing in the email, one entry per property.
 Use null for any detail the email does not state. Do not guess.
 """
-
-
-class Listing(BaseModel):
-    price: Optional[float] = Field(description="Rent or sale price as a number")
-    currency: Optional[str] = Field(description="Currency code, for example EUR")
-    location: Optional[str] = Field(description="City, district or address")
-    size_sqm: Optional[float] = Field(description="Size in square meters")
-    rooms: Optional[float] = Field(description="Number of rooms")
-    move_in_date: Optional[str] = Field(description="Available from, as written")
-    link: Optional[str] = Field(description="URL to the listing")
 
 
 class ApartmentCheck(BaseModel):
@@ -85,35 +74,12 @@ def check_apartment(email: EmailObject) -> ApartmentCheck:
 
 
 # --------------------------------------------------------------
-# Step 3: Save listings to a CSV file
+# Step 3: Save listings to Postgres with their embeddings
 # --------------------------------------------------------------
 
 
-def save_listing(email: EmailObject, result: ApartmentCheck) -> None:
-    is_new_file = not LISTINGS_FILE.exists()
-    if not is_new_file:
-        with open(LISTINGS_FILE) as f:
-            if any(row["email_id"] == email.id for row in csv.DictReader(f)):
-                return  # already saved
-
-    rows = [
-        {
-            "email_id": email.id,
-            "listing_number": number,
-            "date": email.date,
-            "from": email.from_[0].email,
-            "subject": email.subject,
-            **listing.model_dump(),
-        }
-        for number, listing in enumerate(result.listings, start=1)
-    ]
-    if not rows:
-        return
-    with open(LISTINGS_FILE, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=rows[0].keys())
-        if is_new_file:
-            writer.writeheader()
-        writer.writerows(rows)
+def save_listing(email: EmailObject, result: ApartmentCheck) -> int:
+    return save_listings(email, result.listings)
 
 
 # --------------------------------------------------------------
@@ -152,8 +118,8 @@ def run(event_id: str) -> None:
     print(f"{len(result.listings)} listing(s) found:")
     for listing in result.listings:
         print(listing.model_dump_json(indent=2))
-    save_listing(email, result)
-    print(f"Saved to {LISTINGS_FILE}")
+    saved = save_listing(email, result)
+    print(f"Saved {saved} new listing(s) to Postgres")
 
     if input(f"Add the '{LABEL_NAME}' label in Gmail? [y/N] ").strip().lower() == "y":
         label_email(email)

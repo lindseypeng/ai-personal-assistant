@@ -1,0 +1,17 @@
+email_id,listing_number,date,from,subject,title,price,currency,location,size_sqm,rooms,move_in_date,link
+sample-email-1,1,1790000000,alerts@example.com,New listings for your search,Bright 2-room flat with balcony facing a quiet courtyard,1150.0,EUR,"Prenzlauer Berg, Berlin",58.0,2.0,01.12.2026,https://example.com/listing/1001
+sample-email-1,2,1790000000,alerts@example.com,New listings for your search,Family apartment next to Volkspark with large kitchen,1890.0,EUR,"Friedrichshain, Berlin",96.5,4.0,15.01.2027,https://example.com/listing/1002
+sample-email-1,3,1790000000,alerts@example.com,New listings for your search,Compact studio close to the U-Bahn for commuters,720.0,EUR,"Wedding, Berlin",29.0,1.0,sofort,https://example.com/listing/1003
+sample-email-1,4,1790000000,alerts@example.com,New listings for your search,Renovated loft in a former factory with high ceilings,2400.0,EUR,"Kreuzberg, Berlin",110.0,3.0,01.02.2027,https://example.com/listing/1004
+sample-email-2,1,1790500000,alerts@example.com,Daily digest,Garden flat with private terrace for dog owners,1350.0,EUR,"Pankow, Berlin",72.0,3.0,01.12.2026,https://example.com/listing/1005
+sample-email-2,2,1790500000,alerts@example.com,Daily digest,Furnished 1-room apartment for temporary stays,980.0,EUR,"Mitte, Berlin",35.0,1.0,sofort,https://example.com/listing/1006
+sample-email-2,3,1790500000,alerts@example.com,Daily digest,Lakeside house with fireplace and wooded garden,2100.0,EUR,"Wannsee, Berlin",140.0,5.0,01.03.2027,https://example.com/listing/1007
+sample-email-2,4,1790500000,alerts@example.com,Daily digest,Shared-flat friendly 3-room apartment near the university,1420.0,EUR,"Dahlem, Berlin",81.0,3.0,01.01.2027,https://example.com/listing/1008
+sample-email-3,1,1791000000,alerts@example.com,Price drop on saved search,New build with elevator and step-free access,1600.0,EUR,"Adlershof, Berlin",75.0,2.0,01.04.2027,https://example.com/listing/1009
+sample-email-3,2,1791000000,alerts@example.com,Price drop on saved search,Top floor flat with rooftop view over the city,1750.0,EUR,"Schöneberg, Berlin",68.0,2.0,15.12.2026,https://example.com/listing/1010
+sample-email-3,3,1791000000,alerts@example.com,Price drop on saved search,Quiet ground floor apartment beside a playground and school,1280.0,EUR,"Lichtenberg, Berlin",77.0,3.0,01.01.2027,https://example.com/listing/1011
+sample-email-3,4,1791000000,alerts@example.com,Price drop on saved search,Small subsidized flat with WBS certificate required,520.0,EUR,"Marzahn, Berlin",48.0,2.0,sofort,https://example.com/listing/1012
+sample-email-4,1,1791500000,alerts@example.com,Homes for sale,Owner-occupied 3-room condo with parking space,389000.0,EUR,"Steglitz, Berlin",84.0,3.0,,https://example.com/listing/1013
+sample-email-4,2,1791500000,alerts@example.com,Homes for sale,Investment studio rented out to a long-term tenant,149000.0,EUR,"Neukölln, Berlin",31.0,1.0,,https://example.com/listing/1014
+sample-email-4,3,1791500000,alerts@example.com,Homes for sale,Townhouse near the S-Bahn with garden and cellar,629000.0,EUR,"Königs Wusterhausen, Dahme-Spreewald",132.0,5.0,,https://example.com/listing/1015
+sample-email-4,4,1791500000,alerts@example.com,Homes for sale,Historic Altbau apartment with stucco ceilings and wooden floors,545000.0,EUR,"Charlottenburg, Berlin",102.0,3.0,,https://example.com/listing/1016

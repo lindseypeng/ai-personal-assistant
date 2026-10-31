@@ -1,4 +1,5 @@
 # Import packages
+import base64
 import hashlib
 import hmac
 import os
@@ -33,6 +34,18 @@ app = FastAPI()
 
 # Set up Jinja2 templates
 templates = Jinja2Templates(directory="templates")
+
+
+# Ask for APP_PASSWORD on every page except /events, which Nylas must reach
+@app.middleware("http")
+async def require_password(request: Request, call_next):
+    password = os.environ.get("APP_PASSWORD", "")
+    if password and request.url.path != "/events":
+        if not check_password(request.headers.get("authorization"), password):
+            return PlainTextResponse(
+                "Login required", status_code=401, headers={"WWW-Authenticate": "Basic"}
+            )
+    return await call_next(request)
 
 
 # Read and insert webhook data
@@ -127,6 +140,18 @@ def verify_signature(message, key, signature):
     return hmac.compare_digest(digest, signature)
 
 
+# The browser login sends "Basic base64(username:password)", any username is accepted
+def check_password(authorization, password):
+    scheme, _, encoded = (authorization or "").partition(" ")
+    if scheme.lower() != "basic":
+        return False
+    try:
+        _, _, given = base64.b64decode(encoded).decode("utf8").partition(":")
+    except ValueError:
+        return False
+    return hmac.compare_digest(given, password)
+
+
 def store_event_json(event: WebhookEvent):
     base_dir = Path(__file__).resolve().parent.parent
     events_dir = base_dir / "requests" / "events"
@@ -140,4 +165,5 @@ def store_event_json(event: WebhookEvent):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Cloud Run sets PORT, locally it is 8000
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))

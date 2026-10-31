@@ -1,10 +1,131 @@
-# Week 4: Postgres, pgvector, and RAG
+# Week 6: Deploy the Assistant to Cloud Run and Supabase
 
 ## This Week's Goals
 
-1. **Learn vector search:** Store apartment listings in Postgres with pgvector and search them by meaning. Practice with the scripts in [week4/pgvector-setup](week4/pgvector-setup/README.md).
-2. **Move the app to Postgres:** The apartment workflow now saves each listing with an embedding in Postgres instead of a CSV file, and `GET /search` finds listings by meaning with optional price and room filters.
-3. **Complete RAG:** `/search` is the Retrieval step. `POST /ask` adds Generation: an LLM answers your question using only the retrieved listings and cites the ones it used.
+1. **Move the database to Supabase:** A hosted Postgres with pgvector replaces the Docker database, so the listings live online.
+2. **Run the app on Google Cloud Run:** Cloud Run builds the app from the `Dockerfile` and gives it a fixed HTTPS address, so the webhook no longer depends on a tunnel that changes every session.
+3. **Keep it private:** Nylas can reach `/events`. Every other page asks for a password.
+
+This adapts the [Datalumina week 6 deployment guide](https://github.com/datalumina/genai-accelerator-labs/blob/project/ai-assistant-week-6/docs/6-deployment-guide.md). That guide runs everything on one VM with Caddy and self-hosted Supabase. Here Google and Supabase run the servers, so there is no VM, Caddy, or domain to manage.
+
+## How It Fits Together
+
+```mermaid
+flowchart LR
+    N[Nylas] -->|HTTPS /events| R[Cloud Run: FastAPI main.py]
+    U[You, with the password] -->|HTTPS| R
+    R --> S[(Supabase Postgres with pgvector)]
+```
+
+| File | What it does |
+|------|--------------|
+| `Dockerfile` | Builds the app. On start it creates the table if missing, then runs `main.py`. |
+| `.dockerignore` | Keeps `.env`, saved emails, and local files out of the image |
+| `app/main.py` | Listens on Cloud Run's `PORT`, and asks for `APP_PASSWORD` when it is set |
+| `cloudrun.env.yaml` | You create it: the settings Cloud Run passes to the app. Ignored by Git. |
+
+Locally nothing changes. Leave `APP_PASSWORD` empty and the app runs without a login on port 8000.
+
+Settings worth knowing:
+
+- **`--no-cpu-throttling`:** the app replies to Nylas first, then classifies the email in the background. Cloud Run normally slows the CPU right after the reply, so this keeps it running until the work is done.
+- **`--max-instances 1`:** the main page keeps results in memory, so every request has to reach the same instance.
+- **Scale to zero:** after some idle minutes Cloud Run stops the app. The first request afterwards takes a few seconds, and the main page starts empty. Listings stay in Supabase, so `/search` and `/ask` still find them.
+- **Saved emails:** the raw event files are written inside the container and disappear when it stops. The extracted listings are what is kept.
+
+## Deploy, Step by Step
+
+### 1. Create the Supabase database
+
+1. Create a project at [supabase.com](https://supabase.com) in **Central EU (Frankfurt)**, close to your Nylas EU region and Cloud Run. Save the database password.
+2. Click **Connect** and copy the **Session pooler** connection string. Cloud Run can't reach the direct connection, which needs IPv6.
+3. Replace `[YOUR-PASSWORD]` in it with your database password. This is your `DATABASE_URL`.
+
+The app enables pgvector and creates the `listings` table itself when it starts.
+
+### 2. Set up Google Cloud
+
+```bash
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+```
+
+### 3. Write the Cloud Run settings
+
+Create `cloudrun.env.yaml` in the repo root with the values from your `.env`:
+
+```yaml
+NYLAS_API_KEY: "..."
+NYLAS_API_URI: "https://api.eu.nylas.com"
+NYLAS_CLIENT_ID: "..."
+NYLAS_GRANT_ID: "..."
+OPENAI_API_KEY: "..."
+DATABASE_URL: "postgresql://postgres.xxxx:PASSWORD@aws-0-eu-central-1.pooler.supabase.com:5432/postgres"
+APP_PASSWORD: "choose a strong password"
+WEBHOOK_SECRET: ""
+```
+
+`WEBHOOK_SECRET` stays empty until step 5.
+
+### 4. Deploy
+
+From the repo root:
+
+```bash
+gcloud run deploy assistant \
+  --source . \
+  --region europe-west3 \
+  --allow-unauthenticated \
+  --no-cpu-throttling \
+  --max-instances 1 \
+  --env-vars-file cloudrun.env.yaml
+```
+
+Cloud Build builds the `Dockerfile` and Cloud Run prints the service URL, such as `https://assistant-xxxx.europe-west3.run.app`. Open it, enter any username and your `APP_PASSWORD`, and you see the main page.
+
+`--allow-unauthenticated` lets Nylas reach the app. The password check in `main.py` protects every page except `/events`, and `/events` checks the Nylas signature.
+
+### 5. Create the webhook
+
+On your laptop, set `SERVER_URL` in your local `.env` to the Cloud Run URL, then run `cd app/config` and `uv run config_webhook.py`.
+
+Put the printed secret into `WEBHOOK_SECRET` in `cloudrun.env.yaml`, then load it without rebuilding:
+
+```bash
+gcloud run services update assistant --region europe-west3 --env-vars-file cloudrun.env.yaml
+```
+
+Delete the old trycloudflare webhook in the Nylas Dashboard, so Nylas stops reporting it as failing.
+
+### 6. Test end to end
+
+Send yourself an apartment listing email, then check:
+
+- The logs show `POST /events 200`: `gcloud run services logs read assistant --region europe-west3`
+- The email shows up on the main page with its listings.
+- In Supabase, **Table Editor** shows the new rows in `listings`.
+
+### Optional: load emails you captured locally
+
+Run the loader on your laptop against Supabase:
+
+```bash
+DATABASE_URL="your Supabase URL" uv run app/database/load_events.py
+```
+
+## Day-to-Day
+
+| Task | Command |
+|------|---------|
+| Deploy new code | The `gcloud run deploy` command from step 4 |
+| Change a setting | Edit `cloudrun.env.yaml`, then the `gcloud run services update` command from step 5 |
+| Read logs | `gcloud run services logs read assistant --region europe-west3` |
+| Run locally again | `docker compose up -d`, then `cd app` and `uv run main.py`, as in Week 4 |
+
+---
+
+# Week 4 Reference: Postgres, pgvector, and RAG
 
 ## The Example Data: Apartment Listings
 

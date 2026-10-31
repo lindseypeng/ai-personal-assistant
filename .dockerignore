@@ -1,0 +1,10 @@
+# Secrets come from env_file in docker-compose.yml, never from the image
+.env
+.git
+.venv
+**/__pycache__
+.pytest_cache
+requests
+week4
+output
+*.pptx

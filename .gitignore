@@ -11,3 +11,6 @@ requests/events/*.json
 
 # macOS
 .DS_Store
+
+# Cloud Run settings, holds secrets
+cloudrun.env.yaml

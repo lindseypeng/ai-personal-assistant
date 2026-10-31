@@ -69,12 +69,13 @@ printf '%s' 'YOUR_VALUE' | gcloud secrets create openai-api-key --data-file=-
 | `app-password` | Password for the app |
 | `webhook-secret` | `placeholder` for now, replaced in step 6 |
 
-Let Cloud Run read them (the default service account is `PROJECT_NUMBER-compute@developer.gserviceaccount.com`):
+Create a service account for the app that can only read these secrets:
 
 ```bash
+gcloud iam service-accounts create assistant-run
 for s in openai-api-key nylas-api-key database-url app-password webhook-secret; do
   gcloud secrets add-iam-policy-binding $s --role=roles/secretmanager.secretAccessor \
-    --member=serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com
+    --member=serviceAccount:assistant-run@YOUR_PROJECT_ID.iam.gserviceaccount.com
 done
 ```
 
@@ -92,6 +93,7 @@ NYLAS_GRANT_ID: "..."
 gcloud run deploy assistant --source . --region europe-west3 \
   --allow-unauthenticated --no-cpu-throttling --max-instances 1 \
   --env-vars-file cloudrun.env.yaml \
+  --service-account assistant-run@YOUR_PROJECT_ID.iam.gserviceaccount.com \
   --set-secrets=OPENAI_API_KEY=openai-api-key:latest,NYLAS_API_KEY=nylas-api-key:latest,DATABASE_URL=database-url:latest,APP_PASSWORD=app-password:latest,WEBHOOK_SECRET=webhook-secret:latest
 ```
 
@@ -101,6 +103,7 @@ It prints the service URL. The flags:
 - `--no-cpu-throttling`: lets the email finish processing after the app replies to Nylas.
 - `--max-instances 1`: keeps costs predictable for a personal app.
 - `--set-secrets`: loads each secret into the app as an environment variable.
+- `--service-account`: runs the app as `assistant-run` instead of the default account, which can edit the whole project.
 
 ### 6. Create the webhook
 

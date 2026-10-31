@@ -15,6 +15,10 @@ def create_tables() -> None:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     # create_all only adds missing tables, it never changes existing ones
     Base.metadata.create_all(bind=engine)
+    # Supabase serves tables in "public" through its web API. Row level security with
+    # no policies blocks that API, while the app's own connection keeps full access.
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE listings ENABLE ROW LEVEL SECURITY"))
 
 
 if __name__ == "__main__":

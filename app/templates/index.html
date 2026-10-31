@@ -36,7 +36,8 @@
                                 {% if listing.size_sqm %} · {{ listing.size_sqm }} m²{% endif %}
                                 {% if listing.rooms %} · {{ listing.rooms }} rooms{% endif %}
                                 {% if listing.move_in_date %} · from {{ listing.move_in_date }}{% endif %}
-                                {% if listing.link %} · <a href="{{ listing.link }}" target="_blank" rel="noopener">link</a>{% endif %}
+                                {# Links come from email text, so only http(s) links are clickable #}
+                                {% if listing.link and listing.link.startswith(("http://", "https://")) %} · <a href="{{ listing.link }}" target="_blank" rel="noopener">link</a>{% endif %}
                             </li>
                             {% endfor %}
                         </ol>

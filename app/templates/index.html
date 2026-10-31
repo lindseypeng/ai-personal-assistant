@@ -1,74 +1,53 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Nylas Webhooks</title>
+    <title>Apartment Listings</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 2em; }
         table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ccc; padding: 8px; }
+        th, td { border: 1px solid #ccc; padding: 8px; vertical-align: top; }
         th { background: #f4f4f4; }
     </style>
 </head>
 <body>
-    <h1>Nylas Webhooks Received</h1>
-    {% if webhooks %}
+    <h1>Apartment Listings</h1>
+    {% if emails %}
         <table>
             <thead>
                 <tr>
-                    <th>ID</th>
                     <th>Date</th>
                     <th>Subject</th>
-                    <th>From Name</th>
-                    <th>From Email</th>
-                    <th>Apartment Listing</th>
+                    <th>Listings</th>
+                    <th>Gmail</th>
                 </tr>
             </thead>
             <tbody>
-                {% for webhook in webhooks %}
+                {% for email in emails %}
                 <tr>
-                    <td>{{ webhook.id }}</td>
+                    <td>{{ email.date }}</td>
+                    <td>{{ email.subject }}</td>
                     <td>
-                        {# Convert timestamp to readable date #}
-                        {{ webhook.date | int}}
+                        <ol>
+                            {% for listing in email.listings %}
+                            <li>
+                                {% if listing.title %}<strong>{{ listing.title }}</strong><br>{% endif %}
+                                {% if listing.price %}{{ listing.price }} {{ listing.currency or "" }}{% endif %}
+                                {% if listing.location %} · {{ listing.location }}{% endif %}
+                                {% if listing.size_sqm %} · {{ listing.size_sqm }} m²{% endif %}
+                                {% if listing.rooms %} · {{ listing.rooms }} rooms{% endif %}
+                                {% if listing.move_in_date %} · from {{ listing.move_in_date }}{% endif %}
+                                {% if listing.link %} · <a href="{{ listing.link }}" target="_blank" rel="noopener">link</a>{% endif %}
+                            </li>
+                            {% endfor %}
+                        </ol>
                     </td>
-                    <td>{{ webhook.subject }}</td>
                     <td>
-                        {% if webhook.from_ and webhook.from_[0].name %}
-                            {{ webhook.from_[0].name }}
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if webhook.from_ and webhook.from_[0].email %}
-                            {{ webhook.from_[0].email }}
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% set result = classifications.get(webhook.id) %}
-                        {% if result %}
-                            {{ "Yes" if result.is_listing else "No" }} ({{ "%.2f" | format(result.confidence) }})
-                            {% if result.is_listing %}
-                                <p>{{ result.listings | length }} listing(s)</p>
-                                <ol>
-                                    {% for listing in result.listings %}
-                                    <li>
-                                        {% if listing.title %}<strong>{{ listing.title }}</strong><br>{% endif %}
-                                        {% if listing.price %}{{ listing.price }} {{ listing.currency or "" }}{% endif %}
-                                        {% if listing.location %} · {{ listing.location }}{% endif %}
-                                        {% if listing.size_sqm %} · {{ listing.size_sqm }} m²{% endif %}
-                                        {% if listing.rooms %} · {{ listing.rooms }} rooms{% endif %}
-                                        {% if listing.move_in_date %} · from {{ listing.move_in_date }}{% endif %}
-                                        {% if listing.link %} · <a href="{{ listing.link }}" target="_blank" rel="noopener">link</a>{% endif %}
-                                    </li>
-                                    {% endfor %}
-                                </ol>
-                                {% if webhook.id in labeled %}
-                                    Labeled in Gmail
-                                {% else %}
-                                    <form method="post" action="/label/{{ webhook.id }}" onsubmit="return confirm('Add the Apartments label in Gmail?');">
-                                        <button type="submit">Label in Gmail</button>
-                                    </form>
-                                {% endif %}
-                            {% endif %}
+                        {% if email.id in labeled %}
+                            Labeled
+                        {% else %}
+                            <form method="post" action="/label/{{ email.id }}" onsubmit="return confirm('Add the Apartments label in Gmail?');">
+                                <button type="submit">Label in Gmail</button>
+                            </form>
                         {% endif %}
                     </td>
                 </tr>
@@ -76,7 +55,7 @@
             </tbody>
         </table>
     {% else %}
-        <p>No webhooks received yet.</p>
+        <p>No listings saved yet.</p>
     {% endif %}
 </body>
 </html>

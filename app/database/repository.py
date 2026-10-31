@@ -40,6 +40,17 @@ def save_listings(email: EmailObject, listings: list[Listing]) -> int:
     return len(rows)
 
 
+def recent_listings(limit: int = 100) -> list[ListingModel]:
+    """Newest listings first, for the main page."""
+    statement = (
+        select(ListingModel)
+        .order_by(ListingModel.email_date.desc(), ListingModel.listing_number)
+        .limit(limit)
+    )
+    with SessionLocal() as db:
+        return list(db.scalars(statement))
+
+
 def search_listings(
     query: str,
     limit: int = 5,

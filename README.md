@@ -99,7 +99,7 @@ It prints the service URL. The flags:
 
 - `--allow-unauthenticated`: lets Nylas reach `/events`. The app's password protects everything else.
 - `--no-cpu-throttling`: lets the email finish processing after the app replies to Nylas.
-- `--max-instances 1`: the main page keeps results in memory, so all requests must reach one instance.
+- `--max-instances 1`: keeps costs predictable for a personal app.
 - `--set-secrets`: loads each secret into the app as an environment variable.
 
 ### 6. Create the webhook
@@ -125,7 +125,7 @@ Send yourself an apartment listing email. Within about 20 seconds it appears on 
 
 ## Good to Know
 
-- After about 15 idle minutes Cloud Run stops the app. The next request takes a few seconds, and the main page starts empty. Listings stay in Supabase, so `/search` and `/ask` still find them.
+- After about 15 idle minutes Cloud Run stops the app, so the next request takes a few seconds. The main page reads saved listings from Supabase, so nothing is lost.
 - To redeploy code, run step 5 again. To change a secret, add a new version as in step 6 and run the `services update` command.
 - To see the app password: `gcloud secrets versions access latest --secret=app-password`
 - Logs: `gcloud run services logs read assistant --region europe-west3`

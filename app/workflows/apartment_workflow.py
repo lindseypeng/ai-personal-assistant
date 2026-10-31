@@ -87,22 +87,22 @@ def save_listing(email: EmailObject, result: ApartmentCheck) -> int:
 # --------------------------------------------------------------
 
 
-def label_email(email: EmailObject) -> None:
+def label_email(grant_id: str, email_id: str) -> None:
     nylas = Client(
         api_key=os.environ.get("NYLAS_API_KEY", ""),
         api_uri=os.environ.get("NYLAS_API_URI", ""),
     )
-    folders = nylas.folders.list(email.grant_id).data
+    folders = nylas.folders.list(grant_id).data
     label = next((f for f in folders if f.name == LABEL_NAME), None)
     if label is None:
-        label = nylas.folders.create(email.grant_id, request_body={"name": LABEL_NAME}).data
+        label = nylas.folders.create(grant_id, request_body={"name": LABEL_NAME}).data
 
-    current = nylas.messages.find(email.grant_id, email.id).data.folders
+    current = nylas.messages.find(grant_id, email_id).data.folders
     if label.id not in current:
         # Gmail rejects system labels such as SENT, so send back only the ones it allows
         allowed = [f for f in current if f not in READ_ONLY_LABELS]
         nylas.messages.update(
-            email.grant_id, email.id, request_body={"folders": allowed + [label.id]}
+            grant_id, email_id, request_body={"folders": allowed + [label.id]}
         )
 
 
@@ -122,7 +122,7 @@ def run(event_id: str) -> None:
     print(f"Saved {saved} new listing(s) to Postgres")
 
     if input(f"Add the '{LABEL_NAME}' label in Gmail? [y/N] ").strip().lower() == "y":
-        label_email(email)
+        label_email(email.grant_id, email.id)
         print("Labeled.")
 
 

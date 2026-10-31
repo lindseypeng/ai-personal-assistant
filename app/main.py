@@ -5,13 +5,14 @@ import hmac
 import os
 from typing import Optional
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, Header, Query, Request, status
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
-from database.repository import search_listings
+from database.repository import recent_listings, search_listings
 from schemas.listing_schema import AskRequest, AskResponse, ListingSearchResult
 from schemas.nylas_email_schema import EmailObject
 from schemas.nylas_webhook_schema import WebhookEvent
@@ -20,13 +21,7 @@ from workflows.ask_workflow import ask
 
 load_dotenv(override=True)
 
-# Array to hold webhook dataclass
-webhooks = []
-
-# Apartment listing results by email id
-classifications = {}
-
-# Ids of emails labeled in Gmail
+# Ids of emails labeled in Gmail since the app started
 labeled = set()
 
 # Create the FastAPI app
@@ -81,29 +76,36 @@ async def webhook(
     else:
         return PlainTextResponse("No event data", status_code=400)
 
-    webhooks.append(email_obj)
     # Classify after replying, so Nylas gets its 200 right away
     background_tasks.add_task(check_listing, email_obj)
     return PlainTextResponse("Webhook received", status_code=200)
 
 
-# Main page
+# Main page: saved listings from the database, grouped by the email they came from
 @app.get("/")
 def index(request: Request):
+    emails = {}
+    for listing in recent_listings():
+        email = emails.setdefault(
+            listing.email_id,
+            {
+                "id": listing.email_id,
+                "date": datetime.fromtimestamp(listing.email_date).strftime("%Y-%m-%d %H:%M"),
+                "subject": listing.subject,
+                "listings": [],
+            },
+        )
+        email["listings"].append(listing)
     return templates.TemplateResponse(
-        request,
-        "index.html",
-        {"webhooks": webhooks, "classifications": classifications, "labeled": labeled},
+        request, "index.html", {"emails": list(emails.values()), "labeled": labeled}
     )
 
 
-# Label a listing in Gmail after you confirm it on the main page
+# Label an email with saved listings in Gmail after you confirm it on the main page
 @app.post("/label/{email_id}")
 def label(email_id: str):
-    result = classifications.get(email_id)
-    email_obj = next((w for w in webhooks if w.id == email_id), None)
-    if email_obj and result and result.is_listing:
-        label_email(email_obj)
+    if any(listing.email_id == email_id for listing in recent_listings()):
+        label_email(os.environ.get("NYLAS_GRANT_ID", ""), email_id)
         labeled.add(email_id)
     return RedirectResponse(url="/", status_code=303)
 
@@ -128,7 +130,6 @@ def ask_listings(request: AskRequest):
 # Check every incoming email for apartment listings and save the ones found
 def check_listing(email_obj: EmailObject):
     result = check_apartment(email_obj)
-    classifications[email_obj.id] = result
     if result.is_listing:
         save_listing(email_obj, result)
 

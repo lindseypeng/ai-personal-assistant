@@ -1,12 +1,50 @@
-# Week 6: Deploy the Assistant to Cloud Run and Supabase
+# Week 6: Deployment, CI/CD, and Cloud Operations
+
+Goal: get the assistant running live on the internet, with a database that isn't on my laptop, and a fixed webhook address so new emails are processed without a tunnel or a terminal left open.
+
+## Live Deployment
+
+| | |
+|---|---|
+| App | [https://assistant-26484711792.europe-west3.run.app](https://assistant-26484711792.europe-west3.run.app) (asks for `APP_PASSWORD`, any username) |
+| Nylas webhook | `https://assistant-26484711792.europe-west3.run.app/events` |
+| Cloud Run | Service `assistant` in project `ai-personal-assistant-lp`, region `europe-west3` (Frankfurt) |
+| Database | Supabase, Central EU (Frankfurt), table `listings` |
 
 ## This Week's Goals
 
-1. **Move the database to Supabase:** A hosted Postgres with pgvector replaces the Docker database, so the listings live online.
-2. **Run the app on Google Cloud Run:** Cloud Run builds the app from the `Dockerfile` and gives it a fixed HTTPS address, so the webhook no longer depends on a tunnel that changes every session.
-3. **Keep it private:** Nylas can reach `/events`. Every other page asks for a password.
+By the end of this week, we can:
 
-This adapts the [Datalumina week 6 deployment guide](https://github.com/datalumina/genai-accelerator-labs/blob/project/ai-assistant-week-6/docs/6-deployment-guide.md). That guide runs everything on one VM with Caddy and self-hosted Supabase. Here Google and Supabase run the servers, so there is no VM, Caddy, or domain to manage.
+- distinguish local, virtual machine, container, platform, and serverless deployment approaches;
+- explain how continuous integration and continuous deployment (CI/CD) automate testing and releases;
+- package the app with Docker and test the image locally;
+- deploy the FastAPI app on Google Cloud Run;
+- use Supabase for hosted Postgres with pgvector;
+- keep the deployed app private with a password, while Nylas can still reach `/events`; and
+- understand Streamlit as a simpler alternative for an interactive demo.
+
+## Deployment Types and the Approach Used Here
+
+| Type | What you manage | Typical use |
+|------|-----------------|-------------|
+| Local process | Application and machine | Development and debugging |
+| Virtual machine | OS, runtime, application, and scaling | Maximum infrastructure control |
+| Container | Image and application configuration | Portable, repeatable deployments |
+| Platform as a service | Application and configuration | Simple web application hosting |
+| Serverless container | Container and configuration | APIs and jobs that scale on demand |
+
+This project uses a **serverless container deployment**. Docker supplies one repeatable image of the app, and Cloud Run manages the servers, HTTPS, startup, and scaling. Supabase runs the database. There is no VM, reverse proxy, or domain to manage.
+
+## CI/CD Concepts
+
+CI/CD is the automated path from a code change to a tested deployment:
+
+1. A developer pushes a change to the repository.
+2. **Continuous integration (CI)** installs dependencies and runs automated checks such as tests, linting, and a Docker build.
+3. A successful build produces an immutable container image.
+4. **Continuous delivery/deployment (CD)** promotes that image to the target environment, runs smoke tests, and makes rollback possible.
+
+The steps below do these stages by hand so each part is visible. `gcloud run deploy --source .` already uses Cloud Build to build the image. A GitHub Actions workflow could later run the tests and the same deploy command on every approved change, without changing the app.
 
 ## How It Fits Together
 
@@ -26,24 +64,37 @@ flowchart LR
 
 Locally nothing changes. Leave `APP_PASSWORD` empty and the app runs without a login on port 8000.
 
-Settings worth knowing:
-
-- **`--no-cpu-throttling`:** the app replies to Nylas first, then classifies the email in the background. Cloud Run normally slows the CPU right after the reply, so this keeps it running until the work is done.
-- **`--max-instances 1`:** the main page keeps results in memory, so every request has to reach the same instance.
-- **Scale to zero:** after some idle minutes Cloud Run stops the app. The first request afterwards takes a few seconds, and the main page starts empty. Listings stay in Supabase, so `/search` and `/ask` still find them.
-- **Saved emails:** the raw event files are written inside the container and disappear when it stops. The extracted listings are what is kept.
-
 ## Deploy, Step by Step
 
-### 1. Create the Supabase database
+### 1. Test the Docker image locally
 
-1. Create a project at [supabase.com](https://supabase.com) in **Central EU (Frankfurt)**, close to your Nylas EU region and Cloud Run. Save the database password.
-2. Click **Connect** and copy the **Session pooler** connection string. Cloud Run can't reach the direct connection, which needs IPv6.
-3. Replace `[YOUR-PASSWORD]` in it with your database password. This is your `DATABASE_URL`.
+Build the image and run it against the local Docker database before touching any cloud service:
 
-The app enables pgvector and creates the `listings` table itself when it starts.
+```bash
+docker compose up -d
+docker build -t assistant .
+docker run --rm -p 8080:8080 --network ai-personal-assistant_default \
+  --env-file .env \
+  -e PORT=8080 \
+  -e APP_PASSWORD=test \
+  -e DATABASE_URL="postgresql://postgres:postgres@db:5432/postgres" \
+  assistant
+```
 
-### 2. Set up Google Cloud
+Inside the Docker network the database is reachable as `db` on port 5432, not `localhost`. In a second terminal:
+
+```bash
+curl -i http://localhost:8080/docs                          # 401: password required
+curl -u any:test "http://localhost:8080/search?q=garden"    # listings from your local database
+```
+
+Press Ctrl+C to stop the container.
+
+### 2. Set up a Google Cloud project
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com), open the project dropdown, click **New Project**, name it, and click **Create**.
+2. Under **Billing**, link a billing account to the project.
+3. Install the `gcloud` CLI, then log in and enable the APIs this deployment needs:
 
 ```bash
 gcloud auth login
@@ -51,7 +102,26 @@ gcloud config set project YOUR_PROJECT_ID
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
 ```
 
-### 3. Write the Cloud Run settings
+Enabling them upfront avoids interactive prompts in the middle of `gcloud run deploy`.
+
+### 3. Create the Supabase database
+
+1. Sign up at [supabase.com](https://supabase.com) and click **New Project**. Pick **Central EU (Frankfurt)**, close to your Nylas EU region and Cloud Run. Save the database password.
+2. Wait a minute or two for it to be ready.
+3. Click **Connect** and copy the **Session pooler** connection string. Cloud Run can't reach the direct connection, which needs IPv6.
+4. Replace `[YOUR-PASSWORD]` in it with your database password. This is your `DATABASE_URL`.
+
+### 4. Check the connection and create the table
+
+Run the table script on your laptop against Supabase. It enables pgvector and creates `listings`, so it also proves the connection string works:
+
+```bash
+DATABASE_URL="your Supabase URL" uv run app/database/create_tables.py
+```
+
+The `Dockerfile` runs the same script on every start, so this step is only a check. The script skips tables that already exist.
+
+### 5. Write the Cloud Run settings
 
 Create `cloudrun.env.yaml` in the repo root with the values from your `.env`:
 
@@ -66,9 +136,9 @@ APP_PASSWORD: "choose a strong password"
 WEBHOOK_SECRET: ""
 ```
 
-`WEBHOOK_SECRET` stays empty until step 5.
+`WEBHOOK_SECRET` stays empty until step 7. The file is in `.gitignore`, so it is never committed.
 
-### 4. Deploy
+### 6. Deploy the app to Cloud Run
 
 From the repo root:
 
@@ -82,11 +152,15 @@ gcloud run deploy assistant \
   --env-vars-file cloudrun.env.yaml
 ```
 
-Cloud Build builds the `Dockerfile` and Cloud Run prints the service URL, such as `https://assistant-xxxx.europe-west3.run.app`. Open it, enter any username and your `APP_PASSWORD`, and you see the main page.
+Cloud Build builds the `Dockerfile`, and Cloud Run prints the service URL, such as `https://assistant-xxxx.europe-west3.run.app`. Open it, enter any username and your `APP_PASSWORD`, and you see the main page.
 
-`--allow-unauthenticated` lets Nylas reach the app. The password check in `main.py` protects every page except `/events`, and `/events` checks the Nylas signature.
+What the flags do:
 
-### 5. Create the webhook
+- **`--allow-unauthenticated`:** lets Nylas reach the app. The password check in `main.py` protects every page except `/events`, and `/events` checks the Nylas signature.
+- **`--no-cpu-throttling`:** the app replies to Nylas first, then classifies the email in the background. Cloud Run normally slows the CPU right after the reply, so this keeps it running until the work is done.
+- **`--max-instances 1`:** the main page keeps results in memory, so every request has to reach the same instance.
+
+### 7. Create the webhook
 
 On your laptop, set `SERVER_URL` in your local `.env` to the Cloud Run URL, then run `cd app/config` and `uv run config_webhook.py`.
 
@@ -98,13 +172,25 @@ gcloud run services update assistant --region europe-west3 --env-vars-file cloud
 
 Delete the old trycloudflare webhook in the Nylas Dashboard, so Nylas stops reporting it as failing.
 
-### 6. Test end to end
+### 8. Test the live deployment end to end
 
 Send yourself an apartment listing email, then check:
 
 - The logs show `POST /events 200`: `gcloud run services logs read assistant --region europe-west3`
 - The email shows up on the main page with its listings.
 - In Supabase, **Table Editor** shows the new rows in `listings`.
+
+Then try retrieval and generation on the live URL:
+
+```bash
+curl -u any:YOUR_APP_PASSWORD "https://YOUR-SERVICE-URL/search?q=garden+flat"
+
+curl -u any:YOUR_APP_PASSWORD -X POST https://YOUR-SERVICE-URL/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Which flats would suit a couple on a small budget?"}'
+```
+
+Quote the `/search` URL: `?` and `&` have special meaning to the shell.
 
 ### Optional: load emails you captured locally
 
@@ -114,12 +200,39 @@ Run the loader on your laptop against Supabase:
 DATABASE_URL="your Supabase URL" uv run app/database/load_events.py
 ```
 
+## Things to Know About the Live App
+
+- **Scale to zero:** after some idle minutes Cloud Run stops the app. The first request afterwards takes a few seconds, and the main page starts empty. Listings stay in Supabase, so `/search` and `/ask` still find them.
+- **Saved emails:** the raw event files are written inside the container and disappear when it stops. The extracted listings are what is kept.
+- **Re-processing is safe:** `save_listings` skips listings already stored, and `load_events.py` skips emails already in the database, so running the loader again or receiving the same email twice adds no duplicates.
+
+## Why a Service and No Scheduled Job
+
+The app is event driven. Nylas calls `/events` the moment an email arrives, and the app processes it in the background. So the app runs as one always-reachable Cloud Run Service, and there is no batch pipeline to schedule with a Cloud Run Job or Cloud Scheduler. If you later add periodic work, such as a daily summary email, that would be the place for a Job triggered by Cloud Scheduler.
+
+## Security Considerations
+
+- **Password on every page except `/events`:** `/search` and `/ask` make billed OpenAI calls, so they are behind `APP_PASSWORD`. `/events` is open to the internet, but rejects any request without a valid Nylas signature.
+- **SQL injection is not a risk here:** every query in `app/database/repository.py` goes through SQLAlchemy, which passes values as parameters. User input is never pasted into a raw SQL string.
+- **Secrets as environment variables:** `cloudrun.env.yaml` puts the keys into Cloud Run as plain environment variables, visible to anyone with access to the Cloud Run service in the console. For a team project, [Google Secret Manager](https://cloud.google.com/run/docs/configuring/services/secrets) is the stronger option, used with `--set-secrets` instead of `--env-vars-file`.
+- **Cost abuse is reduced, not solved:** the password stops strangers, but there is no rate limit or billing alert yet. Setting a budget alert in Google Cloud and a usage limit in OpenAI is a good next step.
+
+## Alternative: a Simple Interactive Streamlit Demo
+
+Streamlit is useful when the goal is a quick human-facing demo rather than a reusable API. A small Streamlit page could call the deployed `/search` and `/ask` endpoints and show the listings and answers, deployed separately on Streamlit Community Cloud.
+
+This is an extra presentation layer, not a replacement:
+
+- FastAPI receives the Nylas webhook and provides JSON endpoints.
+- Streamlit provides an interactive interface with very little UI code.
+- Postgres stays the source of truth.
+
 ## Day-to-Day
 
 | Task | Command |
 |------|---------|
-| Deploy new code | The `gcloud run deploy` command from step 4 |
-| Change a setting | Edit `cloudrun.env.yaml`, then the `gcloud run services update` command from step 5 |
+| Deploy new code | The `gcloud run deploy` command from step 6 |
+| Change a setting | Edit `cloudrun.env.yaml`, then the `gcloud run services update` command from step 7 |
 | Read logs | `gcloud run services logs read assistant --region europe-west3` |
 | Run locally again | `docker compose up -d`, then `cd app` and `uv run main.py`, as in Week 4 |
 

@@ -7,7 +7,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))  # allow importing 
 
 from database.connection import SessionLocal
 from database.models import ListingModel
-from workflows.apartment_workflow import EVENTS_DIR, check_apartment, load_email, save_listing
+from workflows.apartment_workflow import EVENTS_DIR, check_apartment, is_listing_email, load_email, save_listing
 
 
 def load_events() -> None:
@@ -19,6 +19,9 @@ def load_events() -> None:
         email = load_email(path.stem)
         if email.id in stored:
             print(f"Skip (already stored): {email.subject}")
+            continue
+        if not is_listing_email(email):
+            print(f"Not a listing email: {email.subject}")
             continue
         result = check_apartment(email)
         if result.is_listing:

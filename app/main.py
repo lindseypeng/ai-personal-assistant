@@ -16,7 +16,12 @@ from database.repository import recent_listings, search_listings
 from schemas.listing_schema import AskRequest, AskResponse, ListingSearchResult
 from schemas.nylas_email_schema import EmailObject
 from schemas.nylas_webhook_schema import WebhookEvent
-from workflows.apartment_workflow import check_apartment, label_email, save_listing
+from workflows.apartment_workflow import (
+    check_apartment,
+    is_listing_email,
+    label_email,
+    save_listing,
+)
 from workflows.ask_workflow import ask
 
 load_dotenv(override=True)
@@ -69,15 +74,11 @@ async def webhook(
     if not is_genuine:
         return PlainTextResponse("Signature verification failed!", status_code=401)
 
-    # Store the raw event JSON
-    if event:
-        store_event_json(event)
-        email_obj = EmailObject(**event.data["object"])
-    else:
+    if not event:
         return PlainTextResponse("No event data", status_code=400)
 
     # Classify after replying, so Nylas gets its 200 right away
-    background_tasks.add_task(check_listing, email_obj)
+    background_tasks.add_task(check_listing, event)
     return PlainTextResponse("Webhook received", status_code=200)
 
 
@@ -127,8 +128,12 @@ def ask_listings(request: AskRequest):
     return ask(request.question, request.limit, request.max_price, request.min_rooms)
 
 
-# Check every incoming email for apartment listings and save the ones found
-def check_listing(email_obj: EmailObject):
+# Check sender and subject first. Only listing emails are stored and sent in full to the LLM
+def check_listing(event: WebhookEvent):
+    email_obj = EmailObject(**event.data["object"])
+    if not is_listing_email(email_obj):
+        return
+    store_event_json(event)
     result = check_apartment(email_obj)
     if result.is_listing:
         save_listing(email_obj, result)

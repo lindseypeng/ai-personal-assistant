@@ -24,6 +24,11 @@ flowchart LR
     R --> S[(Supabase)]
 ```
 
+## How Emails Are Processed
+
+1. **Sender and subject check.** Senders in `LISTING_DOMAINS` (`immobilienscout24.de`) count as listings. Other emails get one small LLM call with only the sender and subject. Everything else stops here.
+2. **Extraction.** Only for listing emails: the raw event is saved, the full body goes to the LLM, and the listings are saved to the database.
+
 ## Deploy, Step by Step
 
 ### 1. Test the Docker image locally

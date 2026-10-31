@@ -23,6 +23,14 @@ EVENTS_DIR = BASE_DIR / "requests" / "events"
 LABEL_NAME = "Apartments"
 READ_ONLY_LABELS = {"SENT", "DRAFT", "CHAT"}
 MAX_TEXT_CHARS = 40000  # limit on the email text sent to the LLM
+LISTING_DOMAINS = {"immobilienscout24.de"}  # senders that only send listings, no LLM needed
+
+TRIAGE_PROMPT = """
+From only the sender and subject, decide whether the email likely contains apartment listings:
+rental or sale offers, listing alerts or digests from property sites, also when forwarded.
+Answer false for account, login, confirmation and privacy emails, even from property sites,
+and for subjects that say nothing about apartments or offers.
+"""
 
 PROMPT = """
 Decide whether the email contains apartment listings: rental or sale offers for specific
@@ -30,6 +38,10 @@ apartments or houses, including listing alerts and digests from property sites.
 If it does, extract every listing in the email, one entry per property.
 Use null for any detail the email does not state. Do not guess.
 """
+
+
+class ListingTriage(BaseModel):
+    is_listing: bool
 
 
 class ApartmentCheck(BaseModel):
@@ -50,7 +62,26 @@ def load_email(event_id: str) -> EmailObject:
 
 
 # --------------------------------------------------------------
-# Step 2: Classify and extract details with an LLM
+# Step 2: Decide from sender and subject only, so most bodies never reach the LLM
+# --------------------------------------------------------------
+
+
+def is_listing_email(email: EmailObject) -> bool:
+    sender = email.from_[0].email
+    domain = sender.rsplit("@", 1)[-1].lower()
+    if any(domain == d or domain.endswith(f".{d}") for d in LISTING_DOMAINS):
+        return True
+    response = OpenAI().responses.parse(
+        model="gpt-4o-mini",
+        instructions=TRIAGE_PROMPT,
+        input=f"From: {sender}\nSubject: {email.subject}",
+        text_format=ListingTriage,
+    )
+    return response.output_parsed.is_listing
+
+
+# --------------------------------------------------------------
+# Step 3: Classify and extract details from the full body with an LLM
 # --------------------------------------------------------------
 
 
@@ -74,7 +105,7 @@ def check_apartment(email: EmailObject) -> ApartmentCheck:
 
 
 # --------------------------------------------------------------
-# Step 3: Save listings to Postgres with their embeddings
+# Step 4: Save listings to Postgres with their embeddings
 # --------------------------------------------------------------
 
 
@@ -83,7 +114,7 @@ def save_listing(email: EmailObject, result: ApartmentCheck) -> int:
 
 
 # --------------------------------------------------------------
-# Step 4: Label the email in Gmail after confirmation
+# Step 5: Label the email in Gmail after confirmation
 # --------------------------------------------------------------
 
 
@@ -108,8 +139,12 @@ def label_email(grant_id: str, email_id: str) -> None:
 
 def run(event_id: str) -> None:
     email = load_email(event_id)
-    result = check_apartment(email)
     print(f"Subject: {email.subject}")
+    if not is_listing_email(email):
+        print("Not a listing email (sender and subject)")
+        return
+
+    result = check_apartment(email)
     print(f"Apartment listing: {result.is_listing} (confidence {result.confidence:.2f})")
 
     if not result.is_listing:

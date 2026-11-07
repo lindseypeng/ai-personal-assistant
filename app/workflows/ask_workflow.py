@@ -3,7 +3,8 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from langfuse import observe
+from langfuse.openai import OpenAI  # traced drop-in for openai.OpenAI
 from pydantic import BaseModel, Field
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))  # allow importing schemas and database
@@ -31,6 +32,7 @@ class GroundedAnswer(BaseModel):
 # --------------------------------------------------------------
 
 
+@observe(name="retrieve", as_type="retriever")
 def retrieve(
     question: str,
     limit: int = 5,
@@ -69,6 +71,7 @@ def generate(question: str, listings: list[ListingSearchResult]) -> GroundedAnsw
     return response.output_parsed
 
 
+@observe(name="ask")
 def ask(
     question: str,
     limit: int = 5,

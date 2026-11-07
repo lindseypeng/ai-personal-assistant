@@ -12,6 +12,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, Query, Request, status
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
+from langfuse import get_client, observe
 from database.repository import recent_listings, search_listings
 from schemas.listing_schema import AskRequest, AskResponse, ListingSearchResult
 from schemas.nylas_email_schema import EmailObject
@@ -128,15 +129,30 @@ def ask_listings(request: AskRequest):
     return ask(request.question, request.limit, request.max_price, request.min_rooms)
 
 
-# Check sender and subject first. Only listing emails are stored and sent in full to the LLM
+# Check sender and subject first. Only listing emails are stored and sent in full to the LLM.
+# One Langfuse trace per email: its output is the decision, the steps inside are child spans.
+@observe(name="email", capture_input=False)
 def check_listing(event: WebhookEvent):
     email_obj = EmailObject(**event.data["object"])
+    langfuse = get_client()
+    langfuse.update_current_span(
+        input={"from": email_obj.from_[0].email, "subject": email_obj.subject},
+        metadata={"email_id": email_obj.id},
+    )
     if not is_listing_email(email_obj):
-        return
+        return {"triage": False}
     store_event_json(event)
     result = check_apartment(email_obj)
-    if result.is_listing:
-        save_listing(email_obj, result)
+    saved = save_listing(email_obj, result) if result.is_listing else 0
+    # Scores make the judge's answers filterable and chartable in Langfuse
+    langfuse.score_current_trace(name="is_listing", value=1 if result.is_listing else 0, data_type="BOOLEAN")
+    return {
+        "triage": True,
+        "is_listing": result.is_listing,
+        "confidence": result.confidence,
+        "listings_found": len(result.listings),
+        "listings_saved": saved,
+    }
 
 
 # Signature verification

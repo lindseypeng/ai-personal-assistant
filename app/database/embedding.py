@@ -1,4 +1,4 @@
-from openai import OpenAI
+from langfuse.openai import OpenAI  # traced drop-in for openai.OpenAI
 
 from database.models import EMBEDDING_DIMENSIONS
 

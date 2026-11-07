@@ -1,13 +1,14 @@
-# Week 5: Deploy the Assistant
+# Week 6: Observe and Evaluate the Assistant
 
-Run the assistant live on the internet, so new emails are processed without a tunnel or a laptop left on.
+See what the assistant does with every email, and measure how often its AI judge is right.
 
 ## Goals
 
-1. Package the app with Docker and test the image locally.
-2. Move the database to Supabase (hosted Postgres with pgvector).
-3. Deploy the app to Google Cloud Run, with a fixed HTTPS URL for the Nylas webhook.
-4. Keep it private: every page asks for a password, except `/events`, which checks the Nylas signature.
+1. Trace every LLM call with [Langfuse](https://langfuse.com), one trace per email.
+2. Check the judge ("is this email a listing?") against emails you labeled yourself.
+3. Use the saved data in Supabase to find where the assistant makes mistakes.
+
+The deployment itself is unchanged from [Week 5](https://github.com/lindseypeng/ai-personal-assistant/tree/week-5), which has the full deploy steps.
 
 ## Live Deployment
 
@@ -16,125 +17,115 @@ Run the assistant live on the internet, so new emails are processed without a tu
 | App | [assistant-26484711792.europe-west3.run.app](https://assistant-26484711792.europe-west3.run.app) (any username, password is `APP_PASSWORD`) |
 | Cloud Run | Service `assistant`, project `ai-personal-assistant-lp`, region `europe-west3` |
 | Database | Supabase, Central EU (Frankfurt), table `listings` |
+| Traces | Langfuse Cloud, EU region |
 
 ```mermaid
 flowchart LR
     N[Nylas] -->|/events| R[Cloud Run: FastAPI]
     U[You, with password] --> R
     R --> S[(Supabase)]
+    R -.->|traces| L[Langfuse]
 ```
 
-## How Emails Are Processed
+## What a Trace Shows
 
-1. **Sender and subject check.** Senders in `LISTING_DOMAINS` (`immobilienscout24.de`) count as listings. Other emails get one small LLM call with only the sender and subject. Everything else stops here.
-2. **Extraction.** Only for listing emails: the raw event is saved, the full body goes to the LLM, and the listings are saved to the database.
+Each email becomes one trace named `email`:
 
-## Deploy, Step by Step
-
-### 1. Test the Docker image locally
-
-```bash
-docker compose up -d
-docker build -t assistant .
-docker run --rm -p 8080:8080 --network ai-personal-assistant_default --env-file .env \
-  -e PORT=8080 -e APP_PASSWORD=test \
-  -e DATABASE_URL="postgresql://postgres:postgres@db:5432/postgres" \
-  assistant
-```
-
-Open `http://localhost:8080`, log in with any username and `test`, then stop it with Ctrl+C.
-
-### 2. Create a Google Cloud project
-
-Create a project in the [Cloud Console](https://console.cloud.google.com) and link a billing account (a small budget alert is a good idea). Then:
-
-```bash
-gcloud auth login
-gcloud config set project YOUR_PROJECT_ID
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com
-```
-
-### 3. Create the Supabase database
-
-Create a project at [supabase.com](https://supabase.com) in **Central EU (Frankfurt)**. Click **Connect**, copy the **Session pooler** string, and put in your database password. This is your `DATABASE_URL`. The app creates the `listings` table itself on start.
-
-### 4. Store the secrets and settings
-
-Keys and passwords go into Secret Manager, so the Cloud Console shows only a reference, never the value. For each one, run this with your own value:
-
-```bash
-printf '%s' 'YOUR_VALUE' | gcloud secrets create openai-api-key --data-file=-
-```
-
-| Secret | Value |
+| Step | What you see |
 |---|---|
-| `openai-api-key` | OpenAI API key |
-| `nylas-api-key` | Nylas API key |
-| `database-url` | Supabase session pooler string |
-| `app-password` | Password for the app |
-| `webhook-secret` | `placeholder` for now, replaced in step 6 |
+| `email` | Sender and subject in, the decision out: `is_listing`, confidence, listings found and saved |
+| `triage` | Whether the **domain rule** or the **LLM** decided, from sender and subject only |
+| `extract` | The LLM call with the email text, plus `text_chars` and `truncated` (emails over 40,000 characters are cut) |
+| embeddings | One call per saved listing |
 
-Create a service account for the app that can only read these secrets:
+Each trace also has an `is_listing` score, so you can filter and chart the decisions. Questions to `/ask` become a trace named `ask`, with the retrieved listings under `retrieve`.
+
+Traces include email text, so keep the Langfuse project private.
+
+## Set Up Langfuse
+
+1. Sign up at [cloud.langfuse.com](https://cloud.langfuse.com) in the **EU** region and create a project.
+2. Under **Settings**, **API Keys**, create a key pair and add it to `.env`:
+
+```
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+```
+
+3. Install the new package with `uv sync`. Without keys the app still runs, it just sends no traces.
+
+The code change is small: `from langfuse.openai import OpenAI` replaces `from openai import OpenAI`, and `@observe` marks each step.
+
+## Evaluate the Judge
+
+Every judge needs an answer key. Label your saved emails in `requests/labels.json` (Git ignores it, since it points to personal email):
+
+```json
+{"<file name in requests/events without .json>": true}
+```
+
+Then run:
 
 ```bash
-gcloud iam service-accounts create assistant-run
-for s in openai-api-key nylas-api-key database-url app-password webhook-secret; do
+cd app && uv run evals/judge_eval.py
+```
+
+It runs triage and extraction on each email, prints a confusion matrix, and saves nothing to the database. Each email becomes a trace tagged `eval` with a `correct` score, so you can open the wrong ones in Langfuse and read why.
+
+- **Precision**: of the emails the judge called listings, how many really were.
+- **Recall**: of the real listing emails, how many the judge found. Triage misses are lost for good, so recall matters most there.
+
+### Results, November 7
+
+| Data | Result |
+|---|---|
+| 14 labeled local emails (5 listings, 9 not) | 14 of 14 correct, precision and recall 100% |
+| Supabase, 109 emails the judge kept | 108 real listing emails and 1 test email, precision 100% |
+
+The first run scored 13 of 14. The "mistake" was a wrong label: a search confirmation email also contained listings. Check your labels before you blame the model.
+
+Supabase only stores emails the judge kept, so it cannot measure recall. The traces can: every "no" now shows up in Langfuse.
+
+### Extraction quality in Supabase
+
+The judge is reliable. The weaker part is extraction:
+
+- 1,206 of the 1,253 listings announced in email subjects were saved (96%). Two "30 Angebote" emails kept only 11 and 12.
+- Currency is written as both `EUR` and `€`.
+- 62 listings have no price, and 34 cost more than the 1,500 € limit of the search alert (likely warm rent instead of cold rent).
+
+The `truncated` field in each `extract` trace will show whether the 40,000 character limit explains the missing listings.
+
+## Deploy Changes
+
+Store the two keys as secrets and let the app's service account read them:
+
+```bash
+printf '%s' 'pk-lf-...' | gcloud secrets create langfuse-public-key --data-file=-
+printf '%s' 'sk-lf-...' | gcloud secrets create langfuse-secret-key --data-file=-
+for s in langfuse-public-key langfuse-secret-key; do
   gcloud secrets add-iam-policy-binding $s --role=roles/secretmanager.secretAccessor \
     --member=serviceAccount:assistant-run@YOUR_PROJECT_ID.iam.gserviceaccount.com
 done
 ```
 
-The settings that are not secret go in `cloudrun.env.yaml` in the repo root (Git ignores it):
-
-```yaml
-NYLAS_API_URI: "https://api.eu.nylas.com"
-NYLAS_CLIENT_ID: "..."
-NYLAS_GRANT_ID: "..."
-```
-
-### 5. Deploy
+Add `LANGFUSE_BASE_URL: "https://cloud.langfuse.com"` to `cloudrun.env.yaml`, then deploy as in Week 5 with two more secrets:
 
 ```bash
 gcloud run deploy assistant --source . --region europe-west3 \
   --allow-unauthenticated --no-cpu-throttling --max-instances 1 \
   --env-vars-file cloudrun.env.yaml \
   --service-account assistant-run@YOUR_PROJECT_ID.iam.gserviceaccount.com \
-  --set-secrets=OPENAI_API_KEY=openai-api-key:latest,NYLAS_API_KEY=nylas-api-key:latest,DATABASE_URL=database-url:latest,APP_PASSWORD=app-password:latest,WEBHOOK_SECRET=webhook-secret:latest
+  --set-secrets=OPENAI_API_KEY=openai-api-key:latest,NYLAS_API_KEY=nylas-api-key:latest,DATABASE_URL=database-url:latest,APP_PASSWORD=app-password:latest,WEBHOOK_SECRET=webhook-secret:latest,LANGFUSE_PUBLIC_KEY=langfuse-public-key:latest,LANGFUSE_SECRET_KEY=langfuse-secret-key:latest
 ```
 
-It prints the service URL. The flags:
+## Read the Supabase Data Locally
 
-- `--allow-unauthenticated`: lets Nylas reach `/events`. The app's password protects everything else.
-- `--no-cpu-throttling`: lets the email finish processing after the app replies to Nylas.
-- `--max-instances 1`: keeps costs predictable for a personal app.
-- `--set-secrets`: loads each secret into the app as an environment variable.
-- `--service-account`: runs the app as `assistant-run` instead of the default account, which can edit the whole project.
-
-### 6. Create the webhook
-
-Set `SERVER_URL` in your local `.env` to the service URL, then:
+To query the live database from your laptop, copy its connection string from Secret Manager into `.env` without printing it:
 
 ```bash
-cd app/config && uv run config_webhook.py
+printf '\nSUPABASE_DATABASE_URL=%s\n' "$(gcloud secrets versions access latest --secret=database-url --project=YOUR_PROJECT_ID)" >> .env
 ```
 
-Save the printed secret as a new version and restart the app so it loads it:
-
-```bash
-printf '%s' 'PRINTED_SECRET' | gcloud secrets versions add webhook-secret --data-file=-
-gcloud run services update assistant --region europe-west3 --update-secrets=WEBHOOK_SECRET=webhook-secret:latest
-```
-
-Delete any old tunnel webhook in the Nylas Dashboard.
-
-### 7. Test
-
-Send yourself an apartment listing email. Within about 20 seconds it appears on the main page, and its listings appear in Supabase under **Table Editor**, `listings`.
-
-## Good to Know
-
-- After about 15 idle minutes Cloud Run stops the app, so the next request takes a few seconds. The main page reads saved listings from Supabase, so nothing is lost.
-- To redeploy code, run step 5 again. To change a secret, add a new version as in step 6 and run the `services update` command.
-- To see the app password: `gcloud secrets versions access latest --secret=app-password`
-- Logs: `gcloud run services logs read assistant --region europe-west3`
-- Locally nothing changes: leave `APP_PASSWORD` empty and run the app as in [Week 4](https://github.com/lindseypeng/ai-personal-assistant/tree/week-4).
+It has its own name, so `DATABASE_URL` still points to your local Docker database.

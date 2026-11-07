@@ -5,8 +5,9 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+from langfuse import get_client, observe
+from langfuse.openai import OpenAI  # same as openai.OpenAI, but every call is traced in Langfuse
 from nylas import Client
-from openai import OpenAI
 from pydantic import BaseModel, Field
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))  # allow importing schemas and database
@@ -66,11 +67,16 @@ def load_email(event_id: str) -> EmailObject:
 # --------------------------------------------------------------
 
 
+# capture_input=False: the trace shows only sender and subject, not the whole email
+@observe(name="triage", capture_input=False)
 def is_listing_email(email: EmailObject) -> bool:
     sender = email.from_[0].email
+    get_client().update_current_span(input={"from": sender, "subject": email.subject})
     domain = sender.rsplit("@", 1)[-1].lower()
     if any(domain == d or domain.endswith(f".{d}") for d in LISTING_DOMAINS):
+        get_client().update_current_span(metadata={"decided_by": "domain rule"})
         return True
+    get_client().update_current_span(metadata={"decided_by": "llm"})
     response = OpenAI().responses.parse(
         model="gpt-4o-mini",
         instructions=TRIAGE_PROMPT,
@@ -93,8 +99,15 @@ def html_to_text(html: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+# The LLM call inside is traced with its full input, so the span itself skips the raw HTML
+@observe(name="extract", capture_input=False)
 def check_apartment(email: EmailObject) -> ApartmentCheck:
-    text = html_to_text(email.body)[:MAX_TEXT_CHARS]
+    full_text = html_to_text(email.body)
+    text = full_text[:MAX_TEXT_CHARS]
+    # Record whether the email was cut, to see if long emails lose listings
+    get_client().update_current_span(
+        metadata={"text_chars": len(full_text), "truncated": len(full_text) > MAX_TEXT_CHARS}
+    )
     response = OpenAI().responses.parse(
         model="gpt-4o-mini",
         instructions=PROMPT,

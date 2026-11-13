@@ -55,3 +55,16 @@ class ListingModel(Base):
     content = Column(Text, nullable=False)
     embedding = Column(Vector(EMBEDDING_DIMENSIONS), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class GeocodeModel(Base):
+    """Coordinates for one location text, so each address is looked up only once."""
+
+    __tablename__ = "geocodes"
+
+    location = Column(Text, primary_key=True)  # exactly as in listings.location
+    lat = Column(Float, nullable=True)  # empty when nothing was found
+    lon = Column(Float, nullable=True)
+    # "address" for a street address, "area" for a district center, "none" if not found
+    precision = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

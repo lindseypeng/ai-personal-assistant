@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Rent Prices{% endblock %}
+
+{% block head %}
+<style>
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .tile .label { font-size: 13px; color: var(--text-2); }
+    .tile .value { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .tile .note { font-size: 12px; color: var(--text-3); }
+    .chart-card h2, .extremes h2 { font-size: 15px; margin: 0 0 2px; }
+    .chart-card .hint { font-size: 13px; color: var(--text-2); margin: 0 0 12px; }
+    .chart-box { position: relative; height: 320px; }
+    details { margin-top: 12px; font-size: 13px; color: var(--text-2); }
+    details table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; }
+    details td, details th { padding: 2px 16px 2px 0; text-align: right; }
+    .extremes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-top: 16px; }
+    .extremes ol { margin: 8px 0 0; padding-left: 20px; }
+    .extremes li { margin-bottom: 8px; }
+    .extremes .price { font-weight: 600; font-variant-numeric: tabular-nums; }
+    .extremes .meta { color: var(--text-2); font-size: 13px; }
+    .empty { color: var(--text-2); padding: 40px 0; text-align: center; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>Rent prices</h1>
+<p class="subtitle">Monthly cold rent of rental listings from your ImmoScout alerts, without duplicates.</p>
+
+{% include "_filters.html" %}
+
+<div class="tiles">
+    <div class="card tile"><div class="label">Listings</div><div class="value" id="t-count">–</div></div>
+    <div class="card tile"><div class="label">Median rent</div><div class="value" id="t-median">–</div></div>
+    <div class="card tile"><div class="label">Middle half</div><div class="value" id="t-iqr">–</div><div class="note">25th to 75th percentile</div></div>
+    <div class="card tile"><div class="label">Median per m²</div><div class="value" id="t-sqm">–</div></div>
+</div>
+
+<div class="card chart-card">
+    <h2>How many listings at each rent</h2>
+    <p class="hint">Listings per 100 € band. Hover a bar for the exact count.</p>
+    <div class="chart-box"><canvas id="chart" aria-label="Histogram of monthly rent"></canvas></div>
+    <p class="empty" id="empty" hidden>No listings match these filters.</p>
+    <details>
+        <summary>Show as table</summary>
+        <table><thead><tr><th>Rent</th><th>Listings</th></tr></thead><tbody id="table"></tbody></table>
+    </details>
+</div>
+
+<div class="extremes">
+    <div class="card"><h2>Cheapest</h2><ol id="cheapest"></ol></div>
+    <div class="card"><h2>Most expensive</h2><ol id="most-expensive"></ol></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+    let chart;
+    let latest;
+
+    function drawChart(histogram) {
+        const labels = histogram.map((b) => `${b.from}–${b.to} €`);
+        const counts = histogram.map((b) => b.count);
+        if (chart) chart.destroy();
+        chart = new Chart(document.getElementById("chart"), {
+            type: "bar",
+            data: { labels, datasets: [{ data: counts, backgroundColor: color("--accent"), borderRadius: { topLeft: 4, topRight: 4 }, borderSkipped: "bottom", barPercentage: 1, categoryPercentage: 0.94 }] },
+            options: {
+                responsive: true, maintainAspectRatio: false, animation: false,
+                interaction: { mode: "index", intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { displayColors: false, callbacks: { label: (ctx) => `${ctx.parsed.y} listings` } },
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: color("--text-2"), maxRotation: 0, autoSkip: true,
+                         callback: (value, index) => histogram[index].from.toLocaleString("de-DE") + " €" } },
+                    y: { beginAtZero: true, grid: { color: color("--border") }, border: { display: false },
+                         ticks: { color: color("--text-2"), precision: 0 } },
+                },
+            },
+        });
+    }
+
+    function listingItem(listing) {
+        const details = [listing.rooms && `${listing.rooms} ${listing.rooms === 1 ? "room" : "rooms"}`, listing.size_sqm && `${Math.round(listing.size_sqm)} m²`, listing.district]
+            .filter(Boolean).join(" · ");
+        const title = listing.link ? el("a", { href: listing.link, target: "_blank", rel: "noopener" }, listing.title || "Listing") : listing.title;
+        return el("li", {}, el("span", { class: "price" }, euro(listing.price)), " ", title, el("div", { class: "meta" }, details));
+    }
+
+    function render(data) {
+        latest = data;
+        const d = data.distribution;
+        document.getElementById("t-count").textContent = d.count.toLocaleString("de-DE");
+        document.getElementById("t-median").textContent = euro(d.median);
+        document.getElementById("t-iqr").textContent = d.count ? `${euro(d.p25)} – ${euro(d.p75)}` : "–";
+        document.getElementById("t-sqm").textContent = d.median_per_sqm == null ? "–" : d.median_per_sqm.toFixed(2).replace(".", ",") + " €";
+
+        const empty = d.count === 0;
+        document.getElementById("empty").hidden = !empty;
+        document.querySelector(".chart-box").hidden = empty;
+        if (!empty) drawChart(d.histogram);
+
+        document.getElementById("table").replaceChildren(...d.histogram.map((b) =>
+            el("tr", {}, el("td", {}, `${b.from}–${b.to} €`), el("td", {}, String(b.count)))));
+        document.getElementById("cheapest").replaceChildren(...data.extremes.cheapest.map(listingItem));
+        document.getElementById("most-expensive").replaceChildren(...data.extremes.most_expensive.map(listingItem));
+    }
+
+    setupFilters(async (params) => {
+        const response = await fetch("/api/prices?" + params);
+        render(await response.json());
+    });
+
+    // Redraw with the other theme's colors when the system theme changes
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => latest && render(latest));
+</script>
+{% endblock %}

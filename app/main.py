@@ -3,9 +3,9 @@ import base64
 import hashlib
 import hmac
 import os
-from typing import Optional
+from typing import Annotated, Optional
 import uuid
-from datetime import datetime
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, Header, Query, Request, status
@@ -13,25 +13,37 @@ from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 from langfuse import get_client, observe
-from database.repository import recent_listings, search_listings
+from database.geocode import geocode_missing
+from database.repository import search_listings
+from database.stats import Filters, districts, map_points, price_distribution, price_extremes
 from schemas.listing_schema import AskRequest, AskResponse, ListingSearchResult
 from schemas.nylas_email_schema import EmailObject
 from schemas.nylas_webhook_schema import WebhookEvent
 from workflows.apartment_workflow import (
     check_apartment,
     is_listing_email,
-    label_email,
     save_listing,
 )
 from workflows.ask_workflow import ask
+from workflows.chat_workflow import ChatRequest, ChatResponse, chat
+from mcp_server import http_app as mcp_http_app, mcp
 
 load_dotenv(override=True)
 
-# Ids of emails labeled in Gmail since the app started
-labeled = set()
+# The MCP endpoint, for the chat page and for MCP clients such as Claude Desktop
+mcp_app = mcp_http_app()
+
+
+# Starlette does not start a mounted app's lifespan, so run the MCP session manager here
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with mcp.session_manager.run():
+        yield
+
 
 # Create the FastAPI app
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
+app.mount("/mcp", mcp_app)
 
 # Set up Jinja2 templates
 templates = Jinja2Templates(directory="templates")
@@ -83,33 +95,45 @@ async def webhook(
     return PlainTextResponse("Webhook received", status_code=200)
 
 
-# Main page: saved listings from the database, grouped by the email they came from
+# The dashboard opens on the map
 @app.get("/")
-def index(request: Request):
-    emails = {}
-    for listing in recent_listings():
-        email = emails.setdefault(
-            listing.email_id,
-            {
-                "id": listing.email_id,
-                "date": datetime.fromtimestamp(listing.email_date).strftime("%Y-%m-%d %H:%M"),
-                "subject": listing.subject,
-                "listings": [],
-            },
-        )
-        email["listings"].append(listing)
-    return templates.TemplateResponse(
-        request, "index.html", {"emails": list(emails.values()), "labeled": labeled}
-    )
+def index():
+    return RedirectResponse(url="/map")
 
 
-# Label an email with saved listings in Gmail after you confirm it on the main page
-@app.post("/label/{email_id}")
-def label(email_id: str):
-    if any(listing.email_id == email_id for listing in recent_listings()):
-        label_email(os.environ.get("NYLAS_GRANT_ID", ""), email_id)
-        labeled.add(email_id)
-    return RedirectResponse(url="/", status_code=303)
+# Map of the clean listings, with filters
+@app.get("/map")
+def map_page(request: Request):
+    return templates.TemplateResponse(request, "map.html", {"page": "map", "districts": districts()})
+
+
+# Rent distribution of the clean listings, with filters
+@app.get("/prices")
+def prices_page(request: Request):
+    return templates.TemplateResponse(request, "prices.html", {"page": "prices", "districts": districts()})
+
+
+# Chat about the listings, answered with the MCP tools
+@app.get("/chat")
+def chat_page(request: Request):
+    return templates.TemplateResponse(request, "chat.html", {"page": "chat"})
+
+
+# The browser sends the whole conversation each time, so the server stores nothing
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_answer(request: ChatRequest):
+    return await chat(request.messages)
+
+
+# Data for the pages. Filters arrive as query parameters, for example ?min_rooms=2&max_rooms=2.5
+@app.get("/api/prices")
+def prices_data(filters: Annotated[Filters, Query()]):
+    return {"distribution": price_distribution(filters), "extremes": price_extremes(filters)}
+
+
+@app.get("/api/map")
+def map_data(filters: Annotated[Filters, Query()]):
+    return map_points(filters)
 
 
 # Search saved listings by meaning, with optional price and room filters
@@ -144,6 +168,8 @@ def check_listing(event: WebhookEvent):
     store_event_json(event)
     result = check_apartment(email_obj)
     saved = save_listing(email_obj, result) if result.is_listing else 0
+    if saved:
+        geocode_missing()  # put the new listings on the map, about 1 second per new address
     # Scores make the judge's answers filterable and chartable in Langfuse
     langfuse.score_current_trace(name="is_listing", value=1 if result.is_listing else 0, data_type="BOOLEAN")
     return {

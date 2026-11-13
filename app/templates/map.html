@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Listings Map{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+    #map { height: 70vh; min-height: 420px; border-radius: 10px; border: 1px solid var(--border); }
+    .summary { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; margin-bottom: 12px; font-size: 14px; color: var(--text-2); }
+    .summary strong { color: var(--text); font-variant-numeric: tabular-nums; }
+    .key { display: inline-flex; align-items: center; gap: 6px; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+    .dot.exact { background: var(--accent); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--accent); }
+    .dot.area { border: 2px solid var(--accent); background: transparent; }
+    .popup .price { font-weight: 600; }
+    .popup .meta { color: #52514e; font-size: 12px; }
+    .popup ul { margin: 6px 0 0; padding-left: 18px; max-height: 220px; overflow: auto; }
+    .popup li { margin-bottom: 6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>Listings map</h1>
+<p class="subtitle">Rental listings with a known location. Click a pin for details and the ImmoScout link.</p>
+
+{% include "_filters.html" %}
+
+<div class="summary">
+    <span><strong id="n-exact">–</strong> at their address</span>
+    <span><strong id="n-area">–</strong> at a district center (no street given)</span>
+    <span class="key"><span class="dot exact"></span>Exact address</span>
+    <span class="key"><span class="dot area"></span>District center, size shows count</span>
+</div>
+<div id="map"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+    const map = L.map("map", { preferCanvas: true }).setView([52.52, 13.405], 11);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map);
+    const layer = L.layerGroup().addTo(map);
+
+    function listingLine(listing) {
+        const details = [listing.rooms && `${listing.rooms} ${listing.rooms === 1 ? "room" : "rooms"}`, listing.size_sqm && `${Math.round(listing.size_sqm)} m²`]
+            .filter(Boolean).join(" · ");
+        const title = listing.link ? el("a", { href: listing.link, target: "_blank", rel: "noopener" }, listing.title || "Listing") : (listing.title || "Listing");
+        return [el("span", { class: "price" }, euro(listing.price)), " ", title, el("div", { class: "meta" }, details)];
+    }
+
+    function render(points) {
+        layer.clearLayers();
+        const accent = color("--accent");
+        const exact = points.filter((p) => p.precision === "address");
+        // Listings without a street share their district center: draw one ring per center
+        const areas = new Map();
+        for (const p of points.filter((p) => p.precision === "area")) {
+            const key = `${p.lat},${p.lon}`;
+            if (!areas.has(key)) areas.set(key, []);
+            areas.get(key).push(p);
+        }
+
+        for (const p of exact) {
+            L.circleMarker([p.lat, p.lon], { radius: 6, color: "#ffffff", weight: 1.5, fillColor: accent, fillOpacity: 0.85 })
+                .bindPopup(el("div", { class: "popup" }, ...listingLine(p), el("div", { class: "meta" }, p.location || "")))
+                .addTo(layer);
+        }
+        for (const group of areas.values()) {
+            const items = group.sort((a, b) => a.price - b.price).map((p) => el("li", {}, ...listingLine(p)));
+            const name = group[0].district || group[0].location;
+            L.circleMarker([group[0].lat, group[0].lon], { radius: 6 + Math.sqrt(group.length) * 3, color: accent, weight: 2.5, fillOpacity: 0.08, fillColor: accent })
+                .bindPopup(el("div", { class: "popup" }, el("strong", {}, `${group.length} in ${name}`), el("div", { class: "meta" }, "No street given, shown at the district center"), el("ul", {}, ...items)))
+                .addTo(layer);
+        }
+        document.getElementById("n-exact").textContent = exact.length.toLocaleString("de-DE");
+        document.getElementById("n-area").textContent = (points.length - exact.length).toLocaleString("de-DE");
+
+        if (points.length) map.fitBounds(L.latLngBounds(points.map((p) => [p.lat, p.lon])), { padding: [24, 24], maxZoom: 14 });
+    }
+
+    setupFilters(async (params) => {
+        const response = await fetch("/api/map?" + params);
+        render(await response.json());
+    });
+</script>
+{% endblock %}

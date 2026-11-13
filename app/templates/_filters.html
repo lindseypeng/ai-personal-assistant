@@ -1,0 +1,26 @@
+<form id="filters" class="filters">
+    <label>Rooms
+        <select name="rooms">
+            <option value="">Any</option>
+            <option value="1">1 to 1.5</option>
+            <option value="2">2 to 2.5</option>
+            <option value="3">3 to 3.5</option>
+            <option value="4">4 or more</option>
+        </select>
+    </label>
+    <label>District
+        <select name="district">
+            <option value="">All of Berlin</option>
+            {% for d in districts %}
+            <option value="{{ d.district }}">{{ d.district }} ({{ d.count }})</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label>Min size (m²)
+        <input name="min_size" type="number" min="0" step="5" placeholder="Any">
+    </label>
+    <label>Max rent (€)
+        <input name="max_price" type="number" min="0" step="50" placeholder="Any">
+    </label>
+    <button type="reset">Clear filters</button>
+</form>

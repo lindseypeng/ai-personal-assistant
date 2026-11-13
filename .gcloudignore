@@ -1,0 +1,9 @@
+# Upload only what the Docker build needs: Dockerfile, pyproject.toml, uv.lock, and app/
+*
+!Dockerfile
+!.dockerignore
+!pyproject.toml
+!uv.lock
+!app/
+!app/**
+app/**/__pycache__/
